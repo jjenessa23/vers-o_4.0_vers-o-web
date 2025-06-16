@@ -10,3 +10,4 @@ streamlit
 google-cloud-firestore
 google-auth 
 firebase-admin
+google-cloud
