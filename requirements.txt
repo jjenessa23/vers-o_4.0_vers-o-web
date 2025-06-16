@@ -7,3 +7,6 @@ pandas
 altair 
 numpy
 streamlit
+google-cloud-firestore
+google-auth 
+firebase-admin
