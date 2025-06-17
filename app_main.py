@@ -116,14 +116,7 @@ if not st.session_state.firebase_ready:
         st.error(f"Erro geral na depuração inicial do Firebase: {e}")
         st.session_state.firebase_ready = False
 
-# Feedback inicial sobre o Firebase
-if st.session_state.get('firebase_ready', False):
-    st.success("DEBUG: Conexão inicial com Firebase (Admin SDK e Firestore) estabelecida com sucesso!")
-else:
-    st.error("DEBUG: Falha na conexão inicial com Firebase. Verifique logs e secrets.toml.")
-    # Se o Firebase não estiver pronto, talvez seja melhor parar a execução
-    st.stop()
-# --- FIM DO BLOCO DE INICIALIZAÇÃO DO FIREBASE ---
+
 
 
 # Importar funções de utilidade do novo módulo
@@ -382,7 +375,7 @@ from app_logic import process_form_page
 from app_logic import produtos_page
 # NOVO: Importar a nova página de CLONAGEM de processo
 from app_logic import clonagem_processo_page
-
+from app_logic import process_query_page
 
 # Importar as novas páginas de cálculo
 from app_logic import calculo_futura_page
@@ -425,12 +418,19 @@ else:
 # Esta chamada é importante para garantir que os DBs estejam prontos.
 if 'db_initialized' not in st.session_state:
     st.session_state.db_initialized = db_utils.create_tables()
-    if st.session_state.db_initialized:
-        logger.info("Bancos de dados e tabelas inicializados com sucesso.")
+    # MODIFICADO: Só paramos o app se o Firebase NÃO ESTIVER pronto.
+    # A criação de tabelas do SQLite agora é tratada dentro de db_utils.create_tables()
+    # e não deve impedir a inicialização do app se _SQLITE_ENABLED for False.
+    if not st.session_state.get('firebase_ready', False): # Certifica que o Firebase é o ponto crítico
+        logger.error("Falha na conexão inicial com Firebase. O aplicativo não pode continuar.")
+        st.error("ERRO CRÍTICO: Falha na conexão inicial com Firebase. Verifique logs e secrets.toml.")
+        st.stop()
     else:
-        logger.error("Falha ao inicializar bancos de dados e tabelas.")
-        st.error("ERRO CRÍTICO: Falha ao inicializar bancos de dados e tabelas. Verifique os logs.")
-        st.stop() # Interrompe a execução se a inicialização do DB falhar
+        # Se o Firebase está pronto, e a create_tables não resultou em um erro fatal que parou
+        # o app, então podemos assumir que o db_initialized é True para prosseguir.
+        # Caso contrário, db_utils.create_tables() já teria lidado com isso.
+        st.session_state.db_initialized = True
+        logger.info("Bancos de dados e tabelas inicializados com sucesso (Firestore pronto).")
 
 
 # --- Estado da Sessão ---
@@ -466,6 +466,7 @@ PAGES = {
     "Formulário Processo": process_form_page.show_process_form_page, # Página dedicada para o formulário de edição/criação
     "Clonagem de Processo": clonagem_processo_page.show_clonagem_processo_page, # NOVO: Página dedicada para clonagem
     "Produtos": produtos_page.show_produtos_page, # Nova página para produtos
+    "Consulta de Processo": process_query_page.show_process_query_page,
 }
 
 # --- Tela de Login ---
@@ -629,7 +630,7 @@ else:
         st.rerun()
 
     # --- Conteúdo Principal (Baseado na Página Selecionada) ---
-    st.markdown("---")
+    
 
     with st.container():
         if st.session_state.current_page == "Home":
@@ -661,7 +662,7 @@ else:
             notification_page.display_notifications_on_home(current_username)
             st.markdown("---")
             
-            st.write(f"Versão da Aplicação: {st.session_state.get('app_version', '2.0.1')}")
+            st.write(f"Versão da Aplicação: {st.session_state.get('app_version', '2.1.1')}")
             st.write("Status dos Bancos de Dados:")
             if st.session_state.get('firebase_ready', False): # Verifica a flag de inicialização do Firebase
                 st.success("- Conexão com Firebase estabelecida. DBs prontos.")
@@ -688,6 +689,13 @@ else:
                     original_process_identifier=st.session_state.get('form_process_identifier'),
                     reload_processes_callback=st.session_state.get('form_reload_processes_callback')
                 )
+            # NOVO: Roteamento para a página de Consulta de Processo
+            elif st.session_state.current_page == "Consulta de Processo":
+                # Chama a função show_process_query_page com os argumentos necessários
+                process_query_page.show_process_query_page(
+                    process_identifier=st.session_state.get('query_process_identifier'),
+                    return_callback=lambda: setattr(st.session_state, 'current_page', "Follow-up Importação")
+                )
             else:
                 # Chama a função de exibição da página mapeada em PAGES
                 # Certifique-se de que as páginas que não são o Formulário de Processo
@@ -695,3 +703,4 @@ else:
                 PAGES[st.session_state.current_page]()
         else:
             st.info(f"Página '{st.session_state.current_page}' em desenvolvimento ou não encontrada.")
+

@@ -7,17 +7,13 @@ import json
 import re
 import sqlite3
 import pandas as pd
-import xml.etree.ElementTree as ET # <-- Adicionado: Importação de ET
+import xml.etree.ElementTree as ET
 
-# Importar o SDK do Google Cloud Firestore
 from google.cloud import firestore
 from google.oauth2 import service_account
 
-# Configuração de logging
 logger = logging.getLogger(__name__)
-# MUDADO PARA DEBUG para mais detalhes durante a depuração
-logger.setLevel(logging.DEBUG) 
-# Configurar handler para logger se ainda não estiver configurado
+logger.setLevel(logging.WARNING)
 if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -26,27 +22,22 @@ if not logger.handlers:
 
 logger.info("db_utils.py: Módulo inicializado.")
 
-# --- Configuração Global do Banco de Dados ---
-# Defina TRUE para usar Firestore como primário e SQLite como backup
-# Defina FALSE para usar SQLite como primário (útil para desenvolvimento local sem Firestore)
-_USE_FIRESTORE_AS_PRIMARY = True 
-_SQLITE_ENABLED = True # Mantenha como True para ter o backup físico
+_USE_FIRESTORE_AS_PRIMARY = True
+_SQLITE_ENABLED = False # Alterado para False conforme sua solicitação
 
 logger.info(f"db_utils.py: _USE_FIRESTORE_AS_PRIMARY = {_USE_FIRESTORE_AS_PRIMARY}")
 logger.info(f"db_utils.py: _SQLITE_ENABLED = {_SQLITE_ENABLED}")
 
-# --- Inicialização do Cliente Firestore ---
 db_firestore: Optional[firestore.Client] = None
 try:
     logger.info("db_utils.py: Tentando importar streamlit para credenciais...")
     import streamlit as st
     logger.info("db_utils.py: Streamlit importado com sucesso. Tentando carregar credenciais de st.secrets.")
     
-    # Adicionado: Verificações para as chaves em st.secrets
     if "firestore_service_account" not in st.secrets:
         logger.critical("db_utils.py: Erro CRÍTICO: Chave 'firestore_service_account' NÃO encontrada em st.secrets. Verifique secrets.toml.")
         db_firestore = None
-        raise ValueError("Chave 'firestore_service_account' ausente em st.secrets.") # Levanta um erro para cair no except genérico
+        raise ValueError("Chave 'firestore_service_account' ausente em st.secrets.")
     
     firestore_secrets = st.secrets["firestore_service_account"]
     logger.debug(f"db_utils.py: Bloco 'firestore_service_account' encontrado em st.secrets. Conteúdo parcial: {list(firestore_secrets.keys())}")
@@ -54,18 +45,15 @@ try:
     if "credentials_json" not in firestore_secrets:
         logger.critical("db_utils.py: Erro CRÍTICO: Chave 'credentials_json' NÃO encontrada dentro de 'firestore_service_account' em st.secrets. Verifique secrets.toml.")
         db_firestore = None
-        raise ValueError("Chave 'credentials_json' ausente em st.secrets['firestore_service_account'].") # Levanta um erro
+        raise ValueError("Chave 'credentials_json' ausente em st.secrets['firestore_service_account'].")
 
     _firestore_credentials_json = firestore_secrets["credentials_json"]
     logger.debug(f"db_utils.py: Comprimento da string credentials_json lida: {len(_firestore_credentials_json)} caracteres.")
     
-    # Tenta carregar o JSON e capturar erros específicos de JSON
     try:
         credentials_info = json.loads(_firestore_credentials_json)
         logger.debug("db_utils.py: JSON de credenciais PARSEADO com sucesso. Verificando estrutura...")
         
-        # Opcional: logar partes do JSON (CUIDADO EXTREMO COM INFORMAÇÕES SENSÍVEIS como private_key!)
-        # Não logar a private_key completa aqui!
         if 'project_id' in credentials_info:
             logger.debug(f"db_utils.py: Project ID nas credenciais: {credentials_info['project_id']}")
         if 'client_email' in credentials_info:
@@ -73,8 +61,8 @@ try:
         
     except json.JSONDecodeError as jde:
         logger.critical(f"db_utils.py: Erro CRÍTICO de DECODIFICAÇÃO JSON nas credenciais do Firestore: {jde}. Verifique a formatação em secrets.toml, especialmente as quebras de linha e aspas.")
-        db_firestore = None # Garante que o cliente não seja inicializado
-        raise # Re-levanta o erro para ser pego pelo bloco exterior genérico
+        db_firestore = None
+        raise
     
     _firestore_credentials = service_account.Credentials.from_service_account_info(
         credentials_info
@@ -85,15 +73,13 @@ try:
     logger.info(f"db_utils.py: Firestore client inicializado com sucesso via st.secrets para o projeto: {_firestore_credentials.project_id}.")
 except ImportError:
     logger.warning("db_utils.py: Streamlit não encontrado. Tentando inicializar Firestore via variável de ambiente GOOGLE_APPLICATION_CREDENTIALS.")
-    # Fallback para ambiente local sem Streamlit, por exemplo, via variável de ambiente GOOGLE_APPLICATION_CREDENTIALS
     try:
-        # Quando rodando localmente sem Streamlit, GOOGLE_APPLICATION_CREDENTIALS deve apontar para o JSON da chave
         db_firestore = firestore.Client() 
         logger.info("db_utils.py: Firestore client inicializado com sucesso via credenciais padrão do ambiente (GOOGLE_APPLICATION_CREDENTIALS).")
     except Exception as e:
         logger.error(f"db_utils.py: Erro CRÍTICO ao inicializar Firestore client sem Streamlit: {e}. Certifique-se de que GOOGLE_APPLICATION_CREDENTIALS esteja configurado corretamente.")
-        db_firestore = None # Para evitar erros se o cliente não puder ser inicializado
-except Exception as e: # This is the generic exception for problems with st.secrets or json.loads re-raise
+        db_firestore = None
+except Exception as e:
     logger.exception(f"db_utils.py: Erro INESPERADO ao inicializar Firestore client com st.secrets (verifique secrets.toml, formatação JSON e permissões): {e}")
     db_firestore = None
 
@@ -103,19 +89,16 @@ else:
     logger.info("db_utils.py: Firestore client parece estar pronto para uso.")
 
 
-# --- Configurações do SQLite ---
 _DEFAULT_DB_FOLDER = "data"
 _XML_DI_DB_FILENAME = "analise_xml_di.db"
 _USERS_DB_FILENAME = "users.db"
 _PRODUTOS_DB_FILENAME = "banco_de_dados_descricao.db"
-_NCM_DB_FILENAME = "banco_de_dados_ncm_draft_BL.db" # NCM Hierárquico
+_NCM_DB_FILENAME = "banco_de_dados_ncm_draft_BL.db"
 _PAGAMENTOS_DB_FILENAME = "pagamentos_container.db"
 _FOLLOWUP_DB_FILENAME = "followup_importacao.db"
 _NCM_IMPOSTOS_DB_FILENAME = "ncm_impostos.db"
 
 _base_path = os.path.dirname(os.path.abspath(__file__))
-# Ajuste o _app_root_path se a estrutura do seu projeto for diferente
-# Assumindo que app_main.py estará na raiz do projeto e db_utils em uma subpasta (ex: 'app_logic')
 _app_root_path = os.path.dirname(_base_path) if os.path.basename(_base_path) == 'app_logic' else _base_path
 
 _DB_PATHS_SQLITE = {
@@ -130,8 +113,6 @@ _DB_PATHS_SQLITE = {
 
 logger.info(f"db_utils.py: Caminhos SQLite definidos: {_DB_PATHS_SQLITE}")
 
-
-# --- Funções Auxiliares de Conexão e Coleção ---
 
 def get_sqlite_db_path(db_type: str):
     """Retorna o caminho apropriado do banco de dados SQLite para um dado tipo."""
@@ -154,7 +135,6 @@ def connect_sqlite_db(db_path: str):
         logger.exception(f"db_utils.py: Erro ao conectar ao DB SQLite {db_path}: {e}")
         return None
 
-# As coleções no Firestore
 COLLECTIONS_FIRESTORE = {
     "users": "users",
     "xml_declaracoes": "xml_declaracoes",
@@ -162,12 +142,9 @@ COLLECTIONS_FIRESTORE = {
     "processo_dados_custo": "processo_dados_custo",
     "processo_contratos_cambio": "processo_contratos_cambio",
     "produtos": "produtos",
-    "ncm_items": "ncm_items", # NCM Hierárquico - pode ser uma coleção separada
+    "ncm_items": "ncm_items",
     "pagamentos_container": "pagamentos_container",
     "ncm_impostos_items": "ncm_impostos_items",
-    # Tabelas do followup_db_manager podem ser coleções separadas no mesmo Firestore DB
-    # Para o followup_db_manager, é importante definir o caminho do DB manualmente
-    # ou garantir que ele use o mesmo padrão de conexão que db_utils, ou seja, Firestore
     "followup_processos": "followup_processos",
     "followup_historico_processos": "followup_historico_processos",
     "followup_process_items": "followup_process_items",
@@ -190,16 +167,12 @@ def get_firestore_collection_ref(collection_name: str):
     logger.debug(f"db_utils.py: Obtendo referência da coleção Firestore para '{collection_name}' (path: {collection_path}).")
     return db_firestore.collection(collection_path)
 
-# --- Funções Comuns de Utilitário ---
-
 def hash_password(password: str, username: str) -> str:
     """Cria um hash SHA-256 da senha usando o nome de usuário como sal."""
     password_salted = password + username
     hashed = hashlib.sha256(password_salted.encode('utf-8')).hexdigest()
     logger.debug(f"db_utils.py: Senha hashed para '{username}'.")
     return hashed
-
-# --- Funções de Criação de Tabelas (para SQLite) e Inicialização de Dados (para Firestore) ---
 
 def criar_tabela_users_sqlite(conn: sqlite3.Connection):
     """Cria a tabela 'users' no SQLite se não existir e adiciona a coluna allowed_screens."""
@@ -318,7 +291,6 @@ def criar_tabela_xml_di_sqlite(conn: sqlite3.Connection):
         ''')
         conn.commit()
 
-        # Verificar e adicionar colunas 'armazenagem' e 'frete_nacional' se não existirem
         cursor.execute("PRAGMA table_info(xml_declaracoes)")
         columns = [info[1] for info in cursor.fetchall()]
         if 'armazenagem' not in columns:
@@ -403,14 +375,12 @@ def create_initial_firestore_data_if_not_exists():
         logger.error("db_utils.py: Firestore client não inicializado. Não é possível criar dados iniciais no Firestore.")
         return False
 
-    # Verificar e criar usuário admin padrão
     users_ref = get_firestore_collection_ref("users")
     if users_ref:
         try:
             logger.info("db_utils.py: Verificando se a coleção 'users' (Firestore) contém dados.")
-            # Use .limit(1).get() para verificar rapidamente se a coleção tem documentos
             users_docs = users_ref.limit(1).get()
-            if not list(users_docs): # Se a lista de documentos estiver vazia
+            if not list(users_docs):
                 admin_username = "admin"
                 admin_password_hash = hash_password("admin", admin_username)
                 all_screens_default = [
@@ -420,15 +390,16 @@ def create_initial_firestore_data_if_not_exists():
                     "Cálculo de Tributos TTCE", "Gerenciamento de Usuários",
                     "Cálculo Frete Internacional", "Análise de Faturas/PL (PDF)",
                     "Cálculo Futura", "Cálculo Pac Log - Elo", "Cálculo Fechamento",
-                    "Cálculo FN Transportes"
+                    "Cálculo FN Transportes", "Produtos", "Formulário Processo",
+                    "Clonagem de Processo"
                 ]
                 user_data = {
                     "username": admin_username,
                     "password_hash": admin_password_hash,
                     "is_admin": True,
-                    "allowed_screens": all_screens_default # Salva como lista no Firestore
+                    "allowed_screens": all_screens_default
                 }
-                users_ref.document(admin_username).set(user_data) # Usa username como ID do documento
+                users_ref.document(admin_username).set(user_data)
                 logger.info("db_utils.py: Usuário admin padrão criado no Firestore.")
             else:
                 logger.info("db_utils.py: Coleção 'users' (Firestore) já contém dados. Usuário admin padrão não criado.")
@@ -436,7 +407,6 @@ def create_initial_firestore_data_if_not_exists():
             logger.exception("db_utils.py: Erro ao verificar/criar usuário admin padrão no Firestore.")
             return False
 
-    # Verificar e criar entrada NCM padrão
     ncm_impostos_ref = get_firestore_collection_ref("ncm_impostos_items")
     if ncm_impostos_ref:
         try:
@@ -473,63 +443,34 @@ def create_tables():
     
     data_dir = os.path.join(_app_root_path, _DEFAULT_DB_FOLDER)
     if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-        logger.info(f"db_utils.py: Diretório de dados '{data_dir}' criado.")
+        try:
+            os.makedirs(data_dir)
+            logger.info(f"db_utils.py: Diretório de dados '{data_dir}' criado.")
+        except OSError as e:
+            logger.error(f"db_utils.py: Erro ao criar o diretório de dados '{data_dir}': {e}")
+            # Não defina success = False aqui para permitir que o app continue se o Firestore estiver habilitado.
+            # A falha na criação do diretório de dados para o SQLite não deve impedir o Firestore.
     else:
         logger.info(f"db_utils.py: Diretório de dados '{data_dir}' já existe.")
 
     # --- SQLITE TABLE CREATION ---
     if _SQLITE_ENABLED:
         logger.info("db_utils.py: SQLite está HABILITADO. Iniciando criação/verificação de tabelas SQLite.")
-        conn_users = connect_sqlite_db(get_sqlite_db_path("users"))
-        if conn_users:
-            try:
-                if not criar_tabela_users_sqlite(conn_users):
-                    success = False
-            except Exception as e:
-                logger.error(f"db_utils.py: Erro ao criar tabela Users (SQLite): {e}")
-                if conn_users: conn_users.rollback()
-                success = False
-            finally:
-                if conn_users: conn_users.close()
-        else:
-            logger.error("db_utils.py: Falha na conexão com o DB de usuários para criação de tabela (SQLite).")
-            success = False
+        
+        # Lista de funções de criação de tabela SQLite
+        sqlite_table_creation_functions = [
+            ("users", criar_tabela_users_sqlite),
+            ("ncm_impostos", criar_tabela_ncm_impostos_sqlite),
+            ("xml_di", criar_tabela_xml_di_sqlite),
+            ("produtos", lambda conn: _create_produtos_table_sqlite(conn)), # Usar lambda para passar conn
+            ("ncm", lambda conn: _create_ncm_table_sqlite(conn)), # Usar lambda para passar conn
+            ("pagamentos", lambda conn: _create_pagamentos_table_sqlite(conn)) # Usar lambda para passar conn
+        ]
 
-        conn_ncm_impostos = connect_sqlite_db(get_sqlite_db_path("ncm_impostos"))
-        if conn_ncm_impostos:
+        # Função auxiliar para criar a tabela de produtos SQLite
+        def _create_produtos_table_sqlite(conn: sqlite3.Connection):
             try:
-                if not criar_tabela_ncm_impostos_sqlite(conn_ncm_impostos):
-                    success = False
-            except Exception as e:
-                logger.error(f"db_utils.py: Erro ao criar tabela NCM_Impostos (SQLite): {e}")
-                if conn_ncm_impostos: conn_ncm_impostos.rollback()
-                success = False
-            finally:
-                if conn_ncm_impostos: conn_ncm_impostos.close()
-        else:
-            logger.error("db_utils.py: Falha na conexão com o DB de NCM Impostos para criação de tabela (SQLite).")
-            success = False
-
-        conn_xml_di = connect_sqlite_db(get_sqlite_db_path("xml_di"))
-        if conn_xml_di:
-            try:
-                if not criar_tabela_xml_di_sqlite(conn_xml_di):
-                    success = False
-            except Exception as e:
-                logger.error(f"db_utils.py: Erro ao criar tabelas XML DI/Custo (SQLite): {e}")
-                if conn_xml_di: conn_xml_di.rollback()
-                success = False
-            finally:
-                if conn_xml_di: conn_xml_di.close()
-        else:
-            logger.error("db_utils.py: Falha na conexão com o DB XML DI para criação de tabela (SQLite).")
-            success = False
-
-        conn_produtos = connect_sqlite_db(get_sqlite_db_path("produtos"))
-        if conn_produtos:
-            try:
-                cursor = conn_produtos.cursor()
+                cursor = conn.cursor()
                 _COLS_MAP_PRODUTOS_STRUCT = {
                     "id": {"text": "ID/Key ERP", "width": 120, "col_id": "id_key_erp"},
                     "nome": {"text": "Nome/Part", "width": 200, "col_id": "nome_part"},
@@ -544,22 +485,18 @@ def create_tables():
                         {_COLS_MAP_PRODUTOS_STRUCT['ncm']['col_id']} TEXT
                     )
                 ''')
-                conn_produtos.commit()
+                conn.commit()
                 logger.info("db_utils.py: Tabela Produtos (SQLite) verificada/criada.")
+                return True
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao criar tabela Produtos (SQLite): {e}")
-                conn_produtos.rollback()
-                success = False
-            finally:
-                if conn_produtos: conn_produtos.close()
-        else:
-            logger.error("db_utils.py: Falha na conexão com o DB de Produtos para criação de tabela (SQLite).")
-            success = False
+                conn.rollback()
+                return False
 
-        conn_ncm = connect_sqlite_db(get_sqlite_db_path("ncm"))
-        if conn_ncm:
+        # Função auxiliar para criar a tabela NCM SQLite
+        def _create_ncm_table_sqlite(conn: sqlite3.Connection):
             try:
-                cursor = conn_ncm.cursor()
+                cursor = conn.cursor()
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS ncm_items (
                         item_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -570,22 +507,18 @@ def create_tables():
                     )
                 ''')
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ncm_parent ON ncm_items (parent_id);")
-                conn_ncm.commit()
+                conn.commit()
                 logger.info("db_utils.py: Tabela NCM (SQLite) verificada/criada.")
+                return True
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao criar tabela NCM (SQLite): {e}")
-                conn_ncm.rollback()
-                success = False
-            finally:
-                if conn_ncm: conn_ncm.close()
-        else:
-            logger.error("db_utils.py: Falha na conexão com o DB NCM para criação de tabela (SQLite).")
-            success = False
-
-        conn_pagamentos = connect_sqlite_db(get_sqlite_db_path("pagamentos"))
-        if conn_pagamentos:
+                conn.rollback()
+                return False
+        
+        # Função auxiliar para criar a tabela Pagamentos SQLite
+        def _create_pagamentos_table_sqlite(conn: sqlite3.Connection):
             try:
-                cursor = conn_pagamentos.cursor()
+                cursor = conn.cursor()
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS pagamentos_container (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -594,22 +527,34 @@ def create_tables():
                         QUANTIDADE INTEGER
                     )
                 ''')
-                conn_pagamentos.commit()
+                conn.commit()
                 logger.info("db_utils.py: Tabela Pagamentos (SQLite) verificada/criada.")
+                return True
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao criar tabela Pagamentos (SQLite): {e}")
-                conn_pagamentos.rollback()
+                conn.rollback()
+                return False
+
+        for db_type, create_func in sqlite_table_creation_functions:
+            conn_sqlite = connect_sqlite_db(get_sqlite_db_path(db_type))
+            if conn_sqlite:
+                try:
+                    if not create_func(conn_sqlite):
+                        success = False
+                except Exception as e:
+                    logger.error(f"db_utils.py: Erro ao criar tabela {db_type} (SQLite): {e}")
+                    if conn_sqlite: conn_sqlite.rollback()
+                    success = False
+                finally:
+                    if conn_sqlite: conn_sqlite.close()
+            else:
+                logger.error(f"db_utils.py: Falha na conexão com o DB de {db_type} para criação de tabela (SQLite).")
+                # Se a conexão falhar, isso é um problema. Mas não vamos parar o app todo.
                 success = False
-            finally:
-                if conn_pagamentos: conn_pagamentos.close()
-        else:
-            logger.error("db_utils.py: Falha na conexão com o DB de Pagamentos para criação de tabela (SQLite).")
-            success = False
 
         try:
             logger.info("db_utils.py: Tentando importar followup_db_manager para criação de tabelas Follow-up (SQLite).")
             import followup_db_manager
-            # A função criar_tabela_followup agora não recebe a conexão como argumento
             if not followup_db_manager.criar_tabela_followup():
                 success = False
                 logger.error("db_utils.py: Falha ao criar tabelas Follow-up via followup_db_manager (SQLite).")
@@ -617,7 +562,7 @@ def create_tables():
                 logger.info("db_utils.py: Tabelas Follow-up (SQLite) verificadas/criadas via followup_db_manager.")
         except ImportError:
             logger.warning("db_utils.py: Módulo 'followup_db_manager' não encontrado. As tabelas de Follow-up (SQLite) não serão criadas/verificadas.")
-            success = False # Considera falha se um módulo essencial não pode ser importado
+            # Não setar success = False aqui, pois o módulo pode não ser essencial se o SQLite for apenas um backup
         except Exception as e:
             logger.exception(f"db_utils.py: Erro inesperado ao lidar com followup_db_manager para SQLite: {e}")
             success = False
@@ -649,8 +594,6 @@ def initialize_db_connections():
     logger.info("db_utils.py: initialize_db_connections finalizado.")
 
 
-# --- Funções de Operações CRUD (Adaptadas para Dual DB) ---
-
 def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]:
     """Verifica as credenciais do usuário. Prefere Firestore se for primário."""
     logger.info(f"db_utils.py: Verificando credenciais para o usuário: {username}")
@@ -666,7 +609,7 @@ def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]
                 user_data = user_doc.to_dict()
                 stored_password_hash = user_data.get('password_hash')
                 is_admin = user_data.get('is_admin', False)
-                allowed_screens = user_data.get('allowed_screens', []) # Firestore armazena lista
+                allowed_screens = user_data.get('allowed_screens', [])
                 provided_password_hash = hash_password(password, username)
                 if provided_password_hash == stored_password_hash:
                     logger.info(f"db_utils.py: Login bem-sucedido para o usuário: {username} (Firestore)")
@@ -680,7 +623,7 @@ def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]
         except Exception as e:
             logger.exception(f"db_utils.py: Erro ao verificar credenciais para o usuário {username} no Firestore: {e}")
             return None
-    elif _SQLITE_ENABLED: # Fallback para SQLite se Firestore não for primário ou falhar
+    elif _SQLITE_ENABLED:
         logger.info("db_utils.py: Usando SQLite para verificar credenciais.")
         conn = connect_sqlite_db(get_sqlite_db_path("users"))
         if not conn:
@@ -710,7 +653,7 @@ def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]
             if conn: conn.close()
     else:
         logger.warning("db_utils.py: Nenhuma opção de DB disponível ou primário falhou e não há fallback para verificar credenciais.")
-    return None # Nenhuma opção de DB disponível ou primário falhou e não há fallback
+    return None
 
 def get_all_users() -> List[Dict[str, Any]]:
     """Obtém todos os usuários. Prefere Firestore se for primário."""
@@ -726,10 +669,10 @@ def get_all_users() -> List[Dict[str, Any]]:
             for doc in users_ref.order_by("username").stream():
                 data = doc.to_dict()
                 users.append({
-                    'id': doc.id, # No Firestore, o ID do documento é o username
+                    'id': doc.id,
                     'username': data.get('username'),
                     'is_admin': data.get('is_admin', False),
-                    'allowed_screens': data.get('allowed_screens', []) # Retorna lista
+                    'allowed_screens': data.get('allowed_screens', [])
                 })
             logger.info(f"db_utils.py: Obtidos {len(users)} usuários do Firestore.")
             return users
@@ -752,9 +695,9 @@ def get_all_users() -> List[Dict[str, Any]]:
                     'id': user[0],
                     'username': user[1],
                     'is_admin': bool(user[2]),
-                    'allowed_screens': user[3].split(',') if user[3] else [] # Converte string para lista
+                    'allowed_screens': user[3].split(',') if user[3] else []
                 } for user in users
-            ] # MODIFICADO: Converter para lista de dicionários com 'allowed_screens' como lista
+            ]
         except Exception as e:
             logger.error(f"db_utils.py: Erro ao obter todos os usuários do DB (SQLite): {e}")
             return []
@@ -777,29 +720,24 @@ def get_user_by_id_or_username(identifier: Any) -> Optional[Dict[str, Any]]:
             logger.error(f"db_utils.py: Falha ao acessar coleção 'users' no Firestore para buscar usuário.")
             return None
         try:
-            # Assumimos que o identificador para o Firestore é o username (document ID)
-            user_doc = users_ref.document(str(identifier)).get() # ID do documento é o username
+            user_doc = users_ref.document(str(identifier)).get()
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 logger.info(f"db_utils.py: Usuário '{identifier}' encontrado no Firestore.")
                 return {
-                    'id': user_doc.id, # Retorna o ID do documento (username) como 'id'
+                    'id': user_doc.id,
                     'username': user_data.get('username'),
                     'is_admin': user_data.get('is_admin', False),
                     'allowed_screens': user_data.get('allowed_screens', [])
                 }
             else:
-                # Se não encontrar pelo username, tenta buscar pelo campo 'id' se existir (para compatibilidade com SQLite IDs)
-                # NOTA: Firestore não é otimizado para buscar por campos não-ID.
-                # Se IDs numéricos são importantes, considere mantê-los como um campo único e indexado.
-                # Por simplicidade, faremos uma busca por query.
-                if isinstance(identifier, int): # Se o identificador é numérico (possível ID do SQLite)
+                if isinstance(identifier, int):
                     query_users = users_ref.where('id', '==', identifier).limit(1).get()
                     for doc in query_users:
                         user_data = doc.to_dict()
                         logger.info(f"db_utils.py: Usuário com ID numérico '{identifier}' encontrado no Firestore via query.")
                         return {
-                            'id': doc.id, # O ID do documento (username)
+                            'id': doc.id,
                             'username': user_data.get('username'),
                             'is_admin': user_data.get('is_admin', False),
                             'allowed_screens': user_data.get('allowed_screens', [])
@@ -820,7 +758,7 @@ def get_user_by_id_or_username(identifier: Any) -> Optional[Dict[str, Any]]:
             cursor = conn.cursor()
             if isinstance(identifier, int):
                 cursor.execute("SELECT id, username, is_admin, allowed_screens FROM users WHERE id = ?", (identifier,))
-            else: # Assume que é um username (string)
+            else:
                 cursor.execute("SELECT id, username, is_admin, allowed_screens FROM users WHERE username = ?", (str(identifier),))
             user_data = cursor.fetchone()
             if user_data:
@@ -853,34 +791,25 @@ def adicionar_ou_atualizar_usuario(user_id: Optional[int], username: str, passwo
     success_firestore = True
     success_sqlite = True
 
-    # Dados a serem salvos
     user_data = {
         "username": username,
         "password_hash": password_hash,
         "is_admin": is_admin,
-        "allowed_screens": allowed_screens # Firestore armazena lista nativamente
+        "allowed_screens": allowed_screens
     }
 
-    # --- Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info(f"db_utils.py: Usando Firestore para adicionar/atualizar usuário: {username}")
         users_ref = get_firestore_collection_ref("users")
         if users_ref:
             try:
-                # Firestore usa o username como ID do documento
                 doc_ref = users_ref.document(username)
                 
-                # Para evitar substituir uma senha existente se for atualização e a senha não foi alterada.
-                # Primeiro, verifique se o documento existe.
                 existing_doc = doc_ref.get()
                 if existing_doc.exists:
-                    # Se o documento existe e a 'password_hash' não está presente nos novos dados,
-                    # e se o user_data recebido não contiver 'password_hash' (e sim apenas um campo para atualizar),
-                    # então não atualizamos a senha.
-                    # No nosso caso, password_hash SEMPRE é passado, então a lógica é mais simples.
-                    pass # Apenas prossegue com set() para atualizar
+                    pass
                 
-                doc_ref.set(user_data, merge=True) # merge=True para atualizar apenas os campos fornecidos
+                doc_ref.set(user_data, merge=True)
                 logger.info(f"db_utils.py: Usuário '{username}' inserido/atualizado com sucesso no Firestore.")
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao inserir/atualizar usuário '{username}' no Firestore: {e}")
@@ -889,26 +818,22 @@ def adicionar_ou_atualizar_usuario(user_id: Optional[int], username: str, passwo
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'users' no Firestore.")
             success_firestore = False
 
-    # --- SQLite ---
     if _SQLITE_ENABLED:
         logger.info(f"db_utils.py: Usando SQLite para adicionar/atualizar usuário: {username}")
         conn_sqlite = connect_sqlite_db(get_sqlite_db_path("users"))
         if conn_sqlite:
             try:
                 cursor_sqlite = conn_sqlite.cursor()
-                allowed_screens_str = ",".join(allowed_screens) # SQLite armazena string
+                allowed_screens_str = ",".join(allowed_screens)
                 
-                # Verifica se o username já existe para decidir entre INSERT e UPDATE
                 cursor_sqlite.execute("SELECT id FROM users WHERE username = ?", (username,))
                 existing_user_sqlite = cursor_sqlite.fetchone()
 
-                if existing_user_sqlite: # Usuário existe, então UPDATE
-                    # Verificação para o último admin
+                if existing_user_sqlite:
                     if not is_admin:
                         cursor_sqlite.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
                         admin_count = cursor_sqlite.fetchone()[0]
-                        if admin_count == 1 and existing_user_sqlite[0] == user_id: # Se é o único admin e é este usuário
-                            # Se este usuário é o último admin e está sendo despromovido
+                        if admin_count == 1 and existing_user_sqlite[0] == user_id:
                             st.error("Não é possível remover o status de administrador do último usuário administrador (SQLite).")
                             conn_sqlite.rollback()
                             success_sqlite = False
@@ -919,7 +844,7 @@ def adicionar_ou_atualizar_usuario(user_id: Optional[int], username: str, passwo
                                 WHERE id = ?
                             ''', (username, password_hash, 1 if is_admin else 0, allowed_screens_str, user_id))
                             logger.info(f"db_utils.py: Usuário '{username}' (ID: {user_id}) atualizado com sucesso no SQLite.")
-                else: # Usuário não existe, então INSERT
+                else:
                     cursor_sqlite.execute('''
                         INSERT INTO users (username, password_hash, is_admin, allowed_screens)
                         VALUES (?, ?, ?, ?)
@@ -952,14 +877,12 @@ def atualizar_senha_usuario(user_id: Any, new_password: str, username: str) -> b
 
     new_password_hash = hash_password(new_password, username)
 
-    # --- Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info(f"db_utils.py: Usando Firestore para atualizar senha: {username}")
         users_ref = get_firestore_collection_ref("users")
         if users_ref:
             try:
-                # O ID do documento no Firestore é o username
-                doc_ref = users_ref.document(username) 
+                doc_ref = users_ref.document(username)
                 doc_ref.update({"password_hash": new_password_hash})
                 logger.info(f"db_utils.py: Senha do usuário '{username}' atualizada com sucesso no Firestore.")
             except Exception as e:
@@ -969,7 +892,6 @@ def atualizar_senha_usuario(user_id: Any, new_password: str, username: str) -> b
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'users' no Firestore para atualizar senha.")
             success_firestore = False
 
-    # --- SQLite ---
     if _SQLITE_ENABLED:
         logger.info(f"db_utils.py: Usando SQLite para atualizar senha: {username}")
         conn_sqlite = connect_sqlite_db(get_sqlite_db_path("users"))
@@ -1008,23 +930,20 @@ def deletar_usuario(user_identifier: Any) -> bool:
     user_to_delete = get_user_by_id_or_username(user_identifier)
     if not user_to_delete:
         logger.warning(f"db_utils.py: Usuário '{user_identifier}' não encontrado para exclusão.")
-        return False # Não encontrado, não há o que deletar
+        return False
 
-    # Verificar se é o último admin antes de deletar
-    all_users = get_all_users() # Obtém todos os usuários (cacheado ou não)
+    all_users = get_all_users()
     admin_users = [u for u in all_users if u.get('is_admin')]
 
     if user_to_delete.get('is_admin') and len(admin_users) <= 1:
         logger.error(f"db_utils.py: Não é possível excluir o último usuário administrador: {user_to_delete.get('username')}.")
         return False
 
-    # --- Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info(f"db_utils.py: Usando Firestore para deletar usuário: {user_to_delete.get('username')}")
         users_ref = get_firestore_collection_ref("users")
         if users_ref:
             try:
-                # No Firestore, deletamos pelo username (que é o ID do documento)
                 doc_ref = users_ref.document(user_to_delete.get('username'))
                 doc = doc_ref.get()
                 if doc.exists:
@@ -1039,7 +958,6 @@ def deletar_usuario(user_identifier: Any) -> bool:
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'users' no Firestore para deletar.")
             success_firestore = False
 
-    # --- SQLite ---
     if _SQLITE_ENABLED:
         logger.info(f"db_utils.py: Usando SQLite para deletar usuário: {user_to_delete.get('username')}")
         conn_sqlite = connect_sqlite_db(get_sqlite_db_path("users"))
@@ -1148,7 +1066,7 @@ def selecionar_todos_ncm_itens():
             for doc in ncm_impostos_ref.order_by("ncm_code").stream():
                 data = doc.to_dict()
                 itens.append({
-                    "id": doc.id, # O ID real do documento Firestore
+                    "id": doc.id,
                     "ncm_code": data.get('ncm_code'),
                     "descricao_item": data.get('descricao_item'),
                     "ii_aliquota": data.get('ii_aliquota'),
@@ -1173,7 +1091,7 @@ def selecionar_todos_ncm_itens():
             cursor.execute("SELECT id, ncm_code, descricao_item, ii_aliquota, ipi_aliquota, pis_aliquota, cofins_aliquota, icms_aliquota FROM ncm_impostos_items ORDER BY ncm_code ASC")
             itens = cursor.fetchall()
             logger.info(f"db_utils.py: Obtidos {len(itens)} itens NCM do SQLite.")
-            return [dict(item) for item in itens] # MODIFICADO: Converter para lista de dicionários
+            return [dict(item) for item in itens]
         except Exception as e:
             logger.error(f"db_utils.py: Erro ao buscar todos os itens NCM (SQLite): {e}")
             return []
@@ -1183,7 +1101,7 @@ def selecionar_todos_ncm_itens():
         logger.warning(f"db_utils.py: Nenhuma opção de DB disponível ou primário falhou para selecionar todos os itens NCM.")
     return []
 
-def deletar_ncm_item(ncm_id: str): # ncm_id agora é o ncm_code (string)
+def deletar_ncm_item(ncm_id: str):
     """
     Deleta um item NCM. Deleta em ambos os bancos de dados se habilitado.
     """
@@ -1216,7 +1134,7 @@ def deletar_ncm_item(ncm_id: str): # ncm_id agora é o ncm_code (string)
         if conn_sqlite:
             try:
                 cursor_sqlite = conn_sqlite.cursor()
-                cursor_sqlite.execute("DELETE FROM ncm_impostos_items WHERE ncm_code = ?", (ncm_id,)) # Usa ncm_code para exclusão
+                cursor_sqlite.execute("DELETE FROM ncm_impostos_items WHERE ncm_code = ?", (ncm_id,))
                 conn_sqlite.commit()
                 if cursor_sqlite.rowcount > 0:
                     logger.info(f"db_utils.py: Item NCM com código '{ncm_id}' excluído com sucesso do SQLite.")
@@ -1253,7 +1171,7 @@ def get_ncm_item_by_ncm_code(ncm_code: str):
                 data = doc.to_dict()
                 logger.info(f"db_utils.py: Item NCM '{ncm_code}' encontrado no Firestore.")
                 return {
-                    "id": doc.id, # O ID real do documento Firestore (que é o ncm_code)
+                    "id": doc.id,
                     "ncm_code": data.get("ncm_code"),
                     "descricao_item": data.get("descricao_item"),
                     "ii_aliquota": data.get("ii_aliquota"),
@@ -1280,7 +1198,7 @@ def get_ncm_item_by_ncm_code(ncm_code: str):
             item = cursor.fetchone()
             if item:
                 logger.info(f"db_utils.py: Item NCM '{ncm_code}' encontrado no SQLite.")
-                return dict(item) # MODIFICADO: Converter para dicionário
+                return dict(item)
             else:
                 logger.warning(f"db_utils.py: Item NCM com código '{ncm_code}' não encontrado no SQLite.")
                 return None
@@ -1304,7 +1222,11 @@ def get_all_declaracoes():
             return []
         try:
             docs = declaracoes_ref.order_by("data_importacao", direction=firestore.Query.DESCENDING).order_by("numero_di", direction=firestore.Query.DESCENDING).stream()
-            declaracoes = [doc.to_dict() for doc in docs]
+            declaracoes = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                declaracoes.append(data)
             logger.info(f"db_utils.py: Obtidas {len(declaracoes)} declarações XML do Firestore.")
             return declaracoes
         except Exception as e:
@@ -1324,7 +1246,7 @@ def get_all_declaracoes():
             """)
             declaracoes = cursor.fetchall()
             logger.info(f"db_utils.py: Obtidas {len(declaracoes)} declarações XML do SQLite.")
-            return declaracoes
+            return [dict(d) for d in declaracoes]
         except Exception as e:
             logger.error(f"db_utils.py: Erro DB ao carregar todas as declarações XML DI (SQLite): {e}")
         finally:
@@ -1334,7 +1256,7 @@ def get_all_declaracoes():
         logger.warning(f"db_utils.py: Nenhuma opção de DB disponível ou primário falhou para obter declarações XML.")
     return []
 
-def get_declaracao_by_id(declaracao_id: Any): # ID pode ser int (SQLite) ou string (Firestore)
+def get_declaracao_by_id(declaracao_id: Any):
     """Busca uma declaração pelo ID. Prefere Firestore."""
     logger.info(f"db_utils.py: Buscando declaração por ID: {declaracao_id}")
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
@@ -1344,11 +1266,12 @@ def get_declaracao_by_id(declaracao_id: Any): # ID pode ser int (SQLite) ou stri
             logger.error(f"db_utils.py: Falha ao acessar coleção 'xml_declaracoes' no Firestore para buscar declaração por ID.")
             return None
         try:
-            # Assumindo que declaracao_id no Firestore é o numero_di (string)
             doc = declaracoes_ref.document(str(declaracao_id)).get() 
             if doc.exists:
+                data = doc.to_dict()
+                data['id'] = doc.id
                 logger.info(f"db_utils.py: Declaração ID {declaracao_id} encontrada no Firestore.")
-                return doc.to_dict()
+                return data
             logger.warning(f"db_utils.py: Declaração ID {declaracao_id} não encontrada no Firestore.")
             return None
         except Exception as e:
@@ -1373,7 +1296,7 @@ def get_declaracao_by_id(declaracao_id: Any): # ID pode ser int (SQLite) ou stri
             declaracao = cursor.fetchone()
             if declaracao:
                 logger.info(f"db_utils.py: Declaração ID {declaracao_id} encontrada no SQLite.")
-                return dict(declaracao) # MODIFICADO: Converter para dicionário
+                return dict(declaracao)
             else:
                 logger.warning(f"db_utils.py: Declaração ID {declaracao_id} não encontrada no SQLite.")
                 return None
@@ -1386,8 +1309,7 @@ def get_declaracao_by_id(declaracao_id: Any): # ID pode ser int (SQLite) ou stri
         logger.warning(f"db_utils.py: Nenhuma opção de DB disponível ou primário falhou para buscar declaração por ID.")
     return None
 
-# Renomeado de get_declaracao_by_process_number para get_declaracao_by_referencia
-def get_declaracao_by_referencia(referencia: str) -> Optional[Dict[str, Any]]: # Retorna Dict para consistência
+def get_declaracao_by_referencia(referencia: str) -> Optional[Dict[str, Any]]:
     """
     Busca uma declaração de importação pela referência (informacao_complementar).
     Prefere Firestore se for primário.
@@ -1403,8 +1325,10 @@ def get_declaracao_by_referencia(referencia: str) -> Optional[Dict[str, Any]]: #
             query_val = referencia.strip().upper()
             docs = declaracoes_ref.where("informacao_complementar", "==", query_val).limit(1).get()
             for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
                 logger.info(f"db_utils.py: Declaração com referência '{referencia}' encontrada no Firestore.")
-                return doc.to_dict()
+                return data
             logger.warning(f"db_utils.py: Declaração com referência '{referencia}' não encontrada no Firestore.")
             return None
         except Exception as e:
@@ -1430,7 +1354,7 @@ def get_declaracao_by_referencia(referencia: str) -> Optional[Dict[str, Any]]: #
             declaracao = cursor.fetchone()
             if declaracao:
                 logger.info(f"db_utils.py: Declaração com referência '{referencia}' encontrada no SQLite.")
-                return dict(declaracao) # MODIFICADO: Converter para dicionário
+                return dict(declaracao)
             else:
                 logger.warning(f"db_utils.py: Declaração com referência '{referencia}' não encontrada no SQLite.")
                 return None
@@ -1443,7 +1367,7 @@ def get_declaracao_by_referencia(referencia: str) -> Optional[Dict[str, Any]]: #
         logger.warning(f"db_utils.py: Nenhuma opção de DB disponível ou primário falhou para buscar declaração por referência.")
     return None
 
-def get_itens_by_declaracao_id(declaracao_id: Any): # ID pode ser int (SQLite) ou string (Firestore)
+def get_itens_by_declaracao_id(declaracao_id: Any):
     """Obtém itens de declaração. Prefere Firestore."""
     logger.info(f"db_utils.py: Obtendo itens para declaração ID: {declaracao_id}")
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
@@ -1453,9 +1377,12 @@ def get_itens_by_declaracao_id(declaracao_id: Any): # ID pode ser int (SQLite) o
             logger.error(f"db_utils.py: Falha ao acessar coleção 'xml_itens' no Firestore para obter itens.")
             return []
         try:
-            # Assumindo que declaracao_id no Firestore é o numero_di da DI pai (string)
             docs = itens_ref.where("declaracao_id", "==", str(declaracao_id)).order_by("numero_adicao").order_by("numero_item_sequencial").stream()
-            itens = [doc.to_dict() for doc in docs]
+            itens = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                itens.append(data)
             logger.info(f"db_utils.py: Obtidos {len(itens)} itens para declaração ID {declaracao_id} do Firestore.")
             return itens
         except Exception as e:
@@ -1479,7 +1406,7 @@ def get_itens_by_declaracao_id(declaracao_id: Any): # ID pode ser int (SQLite) o
             """, (declaracao_id,))
             itens = cursor.fetchall()
             logger.info(f"db_utils.py: Obtidos {len(itens)} itens para declaração ID {declaracao_id} do SQLite.")
-            return [dict(item) for item in itens] # MODIFICADO: Converter para lista de dicionários
+            return [dict(item) for item in itens]
         except Exception as e:
             logger.error(f"db_utils.py: Erro DB ao buscar itens para declaração ID {declaracao_id} (SQLite): {e}")
         finally:
@@ -1489,7 +1416,7 @@ def get_itens_by_declaracao_id(declaracao_id: Any): # ID pode ser int (SQLite) o
         logger.warning(f"db_utils.py: Nenhuma opção de DB disponível ou primário falhou para obter itens da declaração.")
     return []
 
-def update_xml_item_erp_code(item_id: Any, new_erp_code: str): # item_id pode ser string (Firestore) ou int (SQLite)
+def update_xml_item_erp_code(item_id: Any, new_erp_code: str):
     """Atualiza código ERP de um item. Grava em ambos os bancos de dados."""
     logger.info(f"db_utils.py: Atualizando código ERP para item ID {item_id} para '{new_erp_code}'.")
     success_firestore = True
@@ -1500,10 +1427,6 @@ def update_xml_item_erp_code(item_id: Any, new_erp_code: str): # item_id pode se
         itens_ref = get_firestore_collection_ref("xml_itens")
         if itens_ref:
             try:
-                # No Firestore, item_id pode ser o ID composto ou o ID gerado automaticamente.
-                # Se item_id for o ID do documento, basta atualizar.
-                # Se for um valor para pesquisa, precisaria de uma query.
-                # Para esta função, assumiremos que item_id é o ID do documento Firestore.
                 doc_ref = itens_ref.document(str(item_id))
                 doc_ref.update({"codigo_erp_item": new_erp_code})
                 logger.info(f"db_utils.py: Item ID {item_id} atualizado com Código ERP '{new_erp_code}' no Firestore.")
@@ -1545,7 +1468,6 @@ def save_process_cost_data(declaracao_id: Any, afrmm: float, siscoserv: float, d
     success_firestore = True
     success_sqlite = True
 
-    # Dados para processo_dados_custo
     cost_data = {
         "afrmm": afrmm,
         "siscoserv": siscoserv,
@@ -1562,17 +1484,14 @@ def save_process_cost_data(declaracao_id: Any, afrmm: float, siscoserv: float, d
             try:
                 batch = db_firestore.batch()
                 
-                # Para processo_dados_custo, usar o ID da DI como ID do documento
                 cost_doc_ref = processo_dados_custo_ref.document(str(declaracao_id))
                 batch.set(cost_doc_ref, cost_data)
 
-                # Deletar contratos antigos no Firestore
                 old_contracts = processo_contratos_cambio_ref.where("declaracao_id", "==", str(declaracao_id)).stream()
                 for doc in old_contracts:
                     batch.delete(doc.reference)
                 logger.debug(f"db_utils.py: Deletados contratos antigos para DI ID {declaracao_id} no Firestore.")
 
-                # Adicionar novos contratos ao batch
                 for index, row in contracts_df.iterrows():
                     num_contrato = row['Nº Contrato']
                     dolar_cambio = row['Dólar']
@@ -1585,7 +1504,6 @@ def save_process_cost_data(declaracao_id: Any, afrmm: float, siscoserv: float, d
                             "dolar_cambio": dolar_cambio,
                             "valor_usd": valor_contrato_usd
                         }
-                        # Usar ID gerado automaticamente para contratos
                         batch.set(processo_contratos_cambio_ref.document(), contract_data)
                 
                 batch.commit()
@@ -1658,7 +1576,6 @@ def get_process_cost_data(declaracao_id: Any):
             logger.error(f"db_utils.py: Falha ao acessar coleções de custo/contrato no Firestore para obter dados.")
             return None, []
         try:
-            # Assumindo que declaracao_id no Firestore é o numero_di (string)
             expenses_doc = processo_dados_custo_ref.document(str(declaracao_id)).get()
             expenses_data = expenses_doc.to_dict() if expenses_doc.exists else None
             
@@ -1699,7 +1616,6 @@ def get_process_cost_data(declaracao_id: Any):
 
 
 def parse_xml_data_to_dict(xml_file_content: str) -> Tuple[Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
-    # Esta função é agnóstica ao DB, apenas parseia o XML
     logger.info("db_utils.py: Iniciando parse do conteúdo XML.")
     try:
         root = ET.fromstring(xml_file_content)
@@ -1785,7 +1701,7 @@ def parse_xml_data_to_dict(xml_file_content: str) -> Tuple[Optional[Dict[str, An
             
             quantidade_total_adicao_from_items = 0.0
             mercadorias_in_current_adicao = adicao.findall('mercadoria')
-            for mercadoria_elem_in_adicao in mercadorias_in_current_adicao: # Corrected variable name
+            for mercadoria_elem_in_adicao in mercadorias_in_current_adicao:
                 quantidade_item_str = mercadoria_elem_in_adicao.find('quantidade').text.strip() if mercadoria_elem_in_adicao.find('quantidade') is not None else "0"
                 try:
                     quantidade_total_adicao_from_items += float(quantidade_item_str) / 10**5
@@ -1820,8 +1736,8 @@ def parse_xml_data_to_dict(xml_file_content: str) -> Tuple[Optional[Dict[str, An
                 custo_unit_di_usd = valor_unitario_fob_usd
 
                 itens_data.append({
-                    "id": f"temp_{numero_di}_{numero_adicao}_{numero_item}", # ID temporário para o parse
-                    "declaracao_id": None, # Será preenchido ao salvar
+                    "id": f"temp_{numero_di}_{numero_adicao}_{numero_item}",
+                    "declaracao_id": None,
                     "numero_adicao": numero_adicao,
                     "numero_item_sequencial": numero_item,
                     "descricao_mercadoria": descricao,
@@ -1863,18 +1779,16 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
         logger.error(f"db_utils.py: Número da DI não fornecido para salvar. Abortando.")
         return False
 
-    # --- Salvar no Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info(f"db_utils.py: Tentando salvar DI e itens no Firestore para DI: {numero_di}")
         declaracoes_ref_firestore = get_firestore_collection_ref("xml_declaracoes")
         itens_ref_firestore = get_firestore_collection_ref("xml_itens")
         if declaracoes_ref_firestore and itens_ref_firestore:
             try:
-                # Verifica se a DI já existe para evitar duplicação
                 existing_di_firestore = declaracoes_ref_firestore.document(numero_di).get()
                 if existing_di_firestore.exists:
                     logger.error(f"db_utils.py: Erro de integridade: A DI {numero_di} já existe no Firestore. Abortando salvamento no Firestore.")
-                    success_firestore = False # Falha no Firestore
+                    success_firestore = False
                 else:
                     batch = db_firestore.batch()
                     di_doc_ref = declaracoes_ref_firestore.document(numero_di)
@@ -1882,11 +1796,9 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
                     logger.debug(f"db_utils.py: DI {numero_di} adicionada ao batch do Firestore.")
 
                     for item in itens_data:
-                        # Criar ID composto para o item no Firestore
                         item_id_firestore = f"{numero_di}_{item.get('numero_adicao')}_{item.get('numero_item_sequencial')}"
                         item_data_firestore = item.copy()
-                        item_data_firestore['declaracao_id'] = numero_di # Linka o item à DI principal
-                        # Remover 'id' temporário do parse XML
+                        item_data_firestore['declaracao_id'] = numero_di
                         if 'id' in item_data_firestore:
                             del item_data_firestore['id']
                         
@@ -1902,7 +1814,6 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
             logger.error(f"db_utils.py: Falha ao obter referências de coleção 'xml_declaracoes' ou 'xml_itens' no Firestore para salvar DI.")
             success_firestore = False
 
-    # --- Salvar no SQLite (Backup Físico) ---
     if _SQLITE_ENABLED:
         logger.info(f"db_utils.py: Tentando salvar DI e itens no SQLite para DI: {numero_di}")
         conn_sqlite = connect_sqlite_db(get_sqlite_db_path("xml_di"))
@@ -1914,7 +1825,7 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
 
                 if existing_di_sqlite:
                     logger.error(f"db_utils.py: Erro de integridade: A DI {numero_di} já existe no SQLite. Abortando salvamento no SQLite.")
-                    success_sqlite = False # Falha no SQLite
+                    success_sqlite = False
                 else:
                     cursor_sqlite.execute('''
                         INSERT INTO xml_declaracoes (
@@ -1926,7 +1837,7 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
                         )
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
-                        di_data.get('numero_di'), di_data.get('data_registro'), di_data.get('vmle'), di_data.get('arquivo_origem'), di_data.get('data_importacao'),
+                        di_data.get('numero_di'), di_data.get('data_registro'), di_data.get('valor_total_reais_xml'), di_data.get('arquivo_origem'), di_data.get('data_importacao'),
                         di_data.get('informacao_complementar'), di_data.get('vmle'), di_data.get('frete'), di_data.get('seguro'), di_data.get('vmld'),
                         di_data.get('ipi'), di_data.get('pis_pasep'), di_data.get('cofins'), di_data.get('icms_sc'),
                         di_data.get('taxa_cambial_usd'), di_data.get('taxa_siscomex'), di_data.get('numero_invoice'),
@@ -1935,13 +1846,13 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
                         di_data.get('quantidade_volumes'), di_data.get('acrescimo'), di_data.get('imposto_importacao'),
                         di_data.get('armazenagem'), di_data.get('frete_nacional')
                     ))
-                    declaracao_id_sqlite = cursor_sqlite.lastrowid # ID autoincremental do SQLite
+                    declaracao_id_sqlite = cursor_sqlite.lastrowid
                     logger.debug(f"db_utils.py: DI {numero_di} inserida no SQLite com ID: {declaracao_id_sqlite}.")
 
                     itens_a_salvar_tuples = []
                     for item in itens_data:
                         itens_a_salvar_tuples.append((
-                            declaracao_id_sqlite, # Linka o item ao ID SQLite da DI
+                            declaracao_id_sqlite,
                             item.get('numero_adicao'), item.get('numero_item_sequencial'), item.get('descricao_mercadoria'),
                             item.get('quantidade'), item.get('unidade_medida'), item.get('valor_unitario'),
                             item.get('valor_item_calculado'), item.get('peso_liquido_item'), item.get('ncm_item'),
@@ -1980,13 +1891,12 @@ def save_parsed_di_data(di_data: Dict[str, Any], itens_data: List[Dict[str, Any]
     return success_firestore and success_sqlite
 
 
-def delete_declaracao(declaracao_id: Any): # ID pode ser string (Firestore) ou int (SQLite)
+def delete_declaracao(declaracao_id: Any):
     """Deleta uma declaração. Deleta em ambos os bancos de dados."""
     logger.info(f"db_utils.py: Iniciando exclusão da declaração ID: {declaracao_id}")
     success_firestore = True
     success_sqlite = True
 
-    # --- Deletar no Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info(f"db_utils.py: Tentando deletar declaração ID {declaracao_id} e dados relacionados do Firestore.")
         declaracoes_ref_firestore = get_firestore_collection_ref("xml_declaracoes")
@@ -1994,12 +1904,10 @@ def delete_declaracao(declaracao_id: Any): # ID pode ser string (Firestore) ou i
         if declaracoes_ref_firestore and itens_ref_firestore:
             try:
                 batch = db_firestore.batch()
-                # Deleta a declaração principal
                 di_doc_ref = declaracoes_ref_firestore.document(str(declaracao_id))
                 batch.delete(di_doc_ref)
                 logger.debug(f"db_utils.py: Declaração ID {declaracao_id} adicionada ao batch para exclusão no Firestore.")
 
-                # Deleta os itens relacionados (Firestore não tem ON DELETE CASCADE como SQLite)
                 docs_to_delete = itens_ref_firestore.where("declaracao_id", "==", str(declaracao_id)).stream()
                 for doc in docs_to_delete:
                     batch.delete(doc.reference)
@@ -2041,17 +1949,40 @@ def update_declaracao(declaracao_id: Any, di_data: Dict[str, Any]):
     success_firestore = True
     success_sqlite = True
 
-    # --- Atualizar no Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info(f"db_utils.py: Tentando atualizar declaração ID {declaracao_id} no Firestore.")
         declaracoes_ref_firestore = get_firestore_collection_ref("xml_declaracoes")
         if declaracoes_ref_firestore:
             try:
-                # O Firestore não tem um 'id' autoincremental, o ID do documento é a chave
-                # Usaremos o numero_di como ID do documento no Firestore
-                doc_ref = declaracoes_ref_firestore.document(str(declaracao_id))
-                doc_ref.update(di_data)
-                logger.info(f"db_utils.py: Declaração ID {declaracao_id} atualizada com sucesso no Firestore.")
+                current_di_data = None
+                if isinstance(declaracao_id, int):
+                    temp_conn_sqlite = None
+                    try:
+                        temp_conn_sqlite = connect_sqlite_db(get_sqlite_db_path("xml_di"))
+                        if temp_conn_sqlite:
+                            cursor = temp_conn_sqlite.cursor()
+                            cursor.execute("SELECT numero_di FROM xml_declaracoes WHERE id = ?", (declaracao_id,))
+                            result = cursor.fetchone()
+                            if result:
+                                current_di_data = result[0]
+                            else:
+                                logger.error(f"db_utils.py: Não foi possível encontrar numero_di para declaracao_id {declaracao_id} no SQLite.")
+                                success_firestore = False
+                        else:
+                            logger.error("db_utils.py: Falha ao conectar ao SQLite para obter numero_di.")
+                            success_firestore = False
+                    finally:
+                        if temp_conn_sqlite: temp_conn_sqlite.close()
+                elif isinstance(declaracao_id, str):
+                    current_di_data = declaracao_id
+
+                if current_di_data:
+                    doc_ref = declaracoes_ref_firestore.document(current_di_data)
+                    doc_ref.update(di_data)
+                    logger.info(f"db_utils.py: Declaração {current_di_data} (Firestore ID) atualizada com sucesso no Firestore.")
+                else:
+                    logger.error(f"db_utils.py: Não foi possível determinar o ID do documento Firestore para atualização. Abortando Firestore update.")
+                    success_firestore = False
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao atualizar declaração ID {declaracao_id} no Firestore: {e}")
                 success_firestore = False
@@ -2098,7 +2029,7 @@ def update_declaracao(declaracao_id: Any, di_data: Dict[str, Any]):
                         frete_nacional = ?
                     WHERE id = ?
                 ''', (
-                    di_data.get('numero_di'), di_data.get('data_registro'), di_data.get('vmle'), di_data.get('arquivo_origem'), di_data.get('data_importacao'),
+                    di_data.get('numero_di'), di_data.get('data_registro'), di_data.get('valor_total_reais_xml'), di_data.get('arquivo_origem'), di_data.get('data_importacao'),
                     di_data.get('informacao_complementar'), di_data.get('vmle'), di_data.get('frete'), di_data.get('seguro'), di_data.get('vmld'),
                     di_data.get('ipi'), di_data.get('pis_pasep'), di_data.get('cofins'), di_data.get('icms_sc'),
                     di_data.get('taxa_cambial_usd'), di_data.get('taxa_siscomex'), di_data.get('numero_invoice'),
@@ -2143,15 +2074,40 @@ def update_declaracao_field(declaracao_id: Any, field_name: str, new_value: Any)
         logger.error(f"db_utils.py: Tentativa de atualizar campo não permitido: {field_name}")
         return False
 
-    # --- Atualizar no Firestore ---
     if _USE_FIRESTORE_AS_PRIMARY and db_firestore:
         logger.info("db_utils.py: Usando Firestore para atualizar campo da declaração.")
         declaracoes_ref_firestore = get_firestore_collection_ref("xml_declaracoes")
         if declaracoes_ref_firestore:
             try:
-                doc_ref = declaracoes_ref_firestore.document(str(declaracao_id))
-                doc_ref.update({field_name: new_value})
-                logger.info(f"db_utils.py: Campo '{field_name}' da declaração ID {declaracao_id} atualizado para '{new_value}' no Firestore.")
+                current_di_firestore_id = None
+                if isinstance(declaracao_id, int):
+                    temp_conn_sqlite = None
+                    try:
+                        temp_conn_sqlite = connect_sqlite_db(get_sqlite_db_path("xml_di"))
+                        if temp_conn_sqlite:
+                            cursor = temp_conn_sqlite.cursor()
+                            cursor.execute("SELECT numero_di FROM xml_declaracoes WHERE id = ?", (declaracao_id,))
+                            result = cursor.fetchone()
+                            if result:
+                                current_di_firestore_id = result[0]
+                            else:
+                                logger.error(f"db_utils.py: Não foi possível encontrar numero_di para declaracao_id {declaracao_id} no SQLite para Firestore update.")
+                                success_firestore = False
+                        else:
+                            logger.error("db_utils.py: Falha ao conectar ao SQLite para obter numero_di para Firestore update.")
+                            success_firestore = False
+                    finally:
+                        if temp_conn_sqlite: temp_conn_sqlite.close()
+                elif isinstance(declaracao_id, str):
+                    current_di_firestore_id = declaracao_id
+
+                if current_di_firestore_id:
+                    doc_ref = declaracoes_ref_firestore.document(current_di_firestore_id)
+                    doc_ref.update({field_name: new_value})
+                    logger.info(f"db_utils.py: Campo '{field_name}' da declaração {current_di_firestore_id} (Firestore ID) atualizado para '{new_value}' no Firestore.")
+                else:
+                    logger.error(f"db_utils.py: Não foi possível determinar o ID do documento Firestore para atualização de campo. Abortando Firestore update.")
+                    success_firestore = False
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao atualizar campo '{field_name}' para declaração ID {declaracao_id} no Firestore: {e}")
                 success_firestore = False
@@ -2182,7 +2138,6 @@ def update_declaracao_field(declaracao_id: Any, field_name: str, new_value: Any)
     return success_firestore and success_sqlite
 
 
-# --- Funções para 'produtos' (Exemplo de adaptação para Dual DB) ---
 def inserir_ou_atualizar_produto(produto: Tuple[str, str, str, str]):
     """
     Insere ou atualiza um produto. Grava em ambos os bancos de dados.
@@ -2247,7 +2202,7 @@ def inserir_ou_atualizar_produto(produto: Tuple[str, str, str, str]):
     
     return success_firestore and success_sqlite
 
-def selecionar_todos_produtos() -> List[Dict[str, Any]]: # MODIFICADO: Retorna lista de dicionários
+def selecionar_todos_produtos() -> List[Dict[str, Any]]:
     """
     Seleciona todos os produtos. Prefere Firestore.
     """
@@ -2259,7 +2214,6 @@ def selecionar_todos_produtos() -> List[Dict[str, Any]]: # MODIFICADO: Retorna l
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'produtos' no Firestore para selecionar todos.")
             return []
         try:
-            # MODIFICADO: Ordenar por 'id_key_erp' primeiro, depois por 'nome_part'
             docs = produtos_ref.order_by("id_key_erp").order_by("nome_part").stream()
             produtos = [doc.to_dict() for doc in docs]
             logger.info(f"db_utils.py: Obtidos {len(produtos)} produtos do Firestore.")
@@ -2275,11 +2229,10 @@ def selecionar_todos_produtos() -> List[Dict[str, Any]]: # MODIFICADO: Retorna l
             return []
         try:
             cursor = conn.cursor()
-            # MODIFICADO: Ordenar por 'id_key_erp' primeiro, depois por 'nome_part'
             cursor.execute("SELECT id_key_erp, nome_part, descricao, ncm FROM produtos ORDER BY id_key_erp ASC, nome_part ASC")
             produtos = cursor.fetchall()
             logger.info(f"db_utils.py: Obtidos {len(produtos)} produtos do SQLite.")
-            return [dict(p) for p in produtos] # MODIFICADO: Converter para lista de dicionários
+            return [dict(p) for p in produtos]
         except Exception as e:
             logger.error(f"db_utils.py: Erro ao buscar todos os produtos (SQLite): {e}")
             return []
@@ -2289,7 +2242,7 @@ def selecionar_todos_produtos() -> List[Dict[str, Any]]: # MODIFICADO: Retorna l
         logger.warning(f"db_utils.py: Nenhuma opção de DB disponível ou primário falhou para selecionar todos os produtos.")
     return []
 
-def selecionar_produto_por_id(id_key_erp: str) -> Optional[Dict[str, Any]]: # MODIFICADO: Retorna dicionário
+def selecionar_produto_por_id(id_key_erp: str) -> Optional[Dict[str, Any]]:
     """
     Seleciona um produto pelo ID. Prefere Firestore.
     """
@@ -2322,7 +2275,7 @@ def selecionar_produto_por_id(id_key_erp: str) -> Optional[Dict[str, Any]]: # MO
             produto = cursor.fetchone()
             if produto:
                 logger.info(f"db_utils.py: Produto com ID/Key ERP '{id_key_erp}' encontrado no SQLite.")
-                return dict(produto) # MODIFICADO: Converter para dicionário
+                return dict(produto)
             else:
                 logger.warning(f"db_utils.py: Produto com ID/Key ERP '{id_key_erp}' não encontrado no SQLite.")
                 return None
@@ -2351,8 +2304,6 @@ def selecionar_produtos_por_ids(ids: List[str]):
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'produtos' no Firestore para selecionar por IDs.")
             return []
         try:
-            # Firestore in operator limit is 10
-            # For more than 10, multiple queries or a more complex strategy is needed
             if len(ids) > 10:
                 logger.warning(f"db_utils.py: Query por múltiplos IDs no Firestore com mais de 10 IDs. Retornando apenas os 10 primeiros.")
                 docs = produtos_ref.where(firestore.FieldPath.document_id(), 'in', ids[:10]).stream()
@@ -2360,7 +2311,6 @@ def selecionar_produtos_por_ids(ids: List[str]):
                 docs = produtos_ref.where(firestore.FieldPath.document_id(), 'in', ids).stream()
             
             produtos_dict = {doc.id: doc.to_dict() for doc in docs}
-            # Manter a ordem dos IDs fornecidos
             produtos_ordenados = [produtos_dict[id] for id in ids if id in produtos_dict]
             logger.info(f"db_utils.py: Obtidos {len(produtos_ordenados)} produtos por IDs do Firestore.")
             return produtos_ordenados
@@ -2378,7 +2328,7 @@ def selecionar_produtos_por_ids(ids: List[str]):
             placeholders = ', '.join('?' * len(ids))
             query = f"SELECT id_key_erp, nome_part, descricao, ncm FROM produtos WHERE id_key_erp IN ({placeholders}) ORDER BY INSTR(',{','.join(ids)},', ',' || id_key_erp || ',')"
             cursor.execute(query, tuple(ids))
-            produtos_dict = {p['id_key_erp']: dict(p) for p in cursor.fetchall()} # MODIFICADO: Converter para dicionário
+            produtos_dict = {p['id_key_erp']: dict(p) for p in cursor.fetchall()}
             produtos_ordenados = [produtos_dict[id] for id in ids if id in produtos_dict]
             logger.info(f"db_utils.py: Obtidos {len(produtos_ordenados)} produtos por IDs do SQLite.")
             return produtos_ordenados
@@ -2441,4 +2391,3 @@ def deletar_produto(id_key_erp: str):
             success_sqlite = False
     
     return success_firestore and success_sqlite
-

@@ -92,8 +92,13 @@ def _save_armazenagem_to_db():
         st.error("Não há dados da DI carregados para salvar a armazenagem.")
         return
 
-    di_id = st.session_state.elo_di_data[0] # O ID da DI é o primeiro elemento da tupla
+    # O ID da DI é acessado como uma chave do dicionário
+    di_id = st.session_state.elo_di_data.get('id')
     
+    if di_id is None:
+        st.error("ID da DI não encontrado nos dados carregados para salvar a armazenagem.")
+        return
+
     # O valor a ser salvo é o 'Total Armazenagem' calculado (VMLD * 0.40%)
     # Ele já está disponível em st.session_state.elo_total_a_depositar_display
     # Precisamos convertê-lo de volta para float.
@@ -119,27 +124,22 @@ def load_elo_di_data(declaracao_id):
         return
 
     logger.info(f"Carregando dados para DI ID (Armazenagem Elo): {declaracao_id}")
-    di_data_row = get_declaracao_by_id(declaracao_id)
+    di_data_dict = get_declaracao_by_id(declaracao_id) # Agora retorna um dicionário
 
-    if di_data_row:
-        # Converte sqlite3.Row para uma tupla ou lista para desempacotar
-        di_data = tuple(di_data_row)
-        st.session_state.elo_di_data = di_data
+    if di_data_dict:
+        st.session_state.elo_di_data = di_data_dict # Armazena o dicionário diretamente
         
-        # Desempacota os dados para acessar informacao_complementar e outros campos
-        (id_db, numero_di, data_registro_db, valor_total_reais_xml,
-         arquivo_origem, data_importacao, informacao_complementar,
-         vmle, frete, seguro, vmld, ipi, pis_pasep, cofins, icms_sc,
-         taxa_cambial_usd, taxa_siscomex, numero_invoice, peso_bruto, peso_liquido,
-         cnpj_importador, importador_nome, recinto, embalagem, quantidade_volumes, acrescimo,
-         imposto_importacao, armazenagem_db_value, frete_nacional_db) = di_data
+        # Acessa os dados usando .get() para robustez e legibilidade
+        # Forneça um valor padrão (0.0 ou "N/A") caso a chave não exista, para evitar erros.
+        informacao_complementar = di_data_dict.get('informacao_complementar')
+        vmld = di_data_dict.get('vmld', 0.0)
+        peso_bruto = di_data_dict.get('peso_bruto', 0.0)
+        peso_liquido = di_data_dict.get('peso_liquido', 0.0)
+        armazenagem_db_value = di_data_dict.get('armazenagem', 0.0) # Assume que a chave é 'armazenagem'
+        # frete_nacional_db = di_data_dict.get('frete_nacional', 0.0) # Não está sendo usado diretamente aqui
 
         st.session_state.elo_processo_ref = informacao_complementar if informacao_complementar else "N/A"
         
-        # O campo de entrada de armazenagem (que foi removido) não precisa mais ser inicializado aqui.
-        # A armazenagem será sempre calculada.
-
-        # DEBUG: Log dos valores brutos carregados do DB
         logger.info(f"DEBUG ELO: DI ID {declaracao_id} - VMLD: {vmld}, Peso Bruto: {peso_bruto}, Armazenagem DB: {armazenagem_db_value}")
 
 
@@ -437,7 +437,8 @@ def show_calculo_paclog_elo_page():
             _save_armazenagem_to_db()
             # Opcional: Recarregar dados da DI para exibir o valor atualizado
             if st.session_state.elo_di_data:
-                load_elo_di_data(st.session_state.elo_di_data[0])
+                # Ao recarregar, passe o ID da DI, não a tupla completa
+                load_elo_di_data(st.session_state.elo_di_data.get('id'))
             st.rerun()
 
     st.markdown("---")

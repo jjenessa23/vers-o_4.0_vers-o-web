@@ -102,8 +102,13 @@ def _save_frete_nacional_to_db():
         st.error("Não há dados da DI carregados para salvar o Frete Nacional.")
         return
 
-    di_id = st.session_state.fn_transportes_di_data[0] # O ID da DI é o primeiro elemento da tupla
+    # O ID da DI é acessado como uma chave do dicionário
+    di_id = st.session_state.fn_transportes_di_data.get('id')
     
+    if di_id is None:
+        st.error("ID da DI não encontrado nos dados carregados para salvar o Frete Nacional.")
+        return
+
     # O valor a ser salvo é o 'Total a Depositar' calculado
     frete_nacional_to_save_str = st.session_state.fn_transportes_total_a_depositar_display
     try:
@@ -129,20 +134,18 @@ def load_fn_transportes_di_data(declaracao_id):
         return
 
     logger.info(f"Carregando dados para DI ID (FN Transportes): {declaracao_id}")
-    di_data_row = get_declaracao_by_id(declaracao_id)
+    di_data_dict = get_declaracao_by_id(declaracao_id) # Agora retorna um dicionário
 
-    if di_data_row:
-        # Converte sqlite3.Row para uma tupla ou lista para desempacotar
-        di_data = tuple(di_data_row)
-        st.session_state.fn_transportes_di_data = di_data
+    if di_data_dict:
+        st.session_state.fn_transportes_di_data = di_data_dict # Armazena o dicionário diretamente
         
-        # Desempacota os dados para acessar informacao_complementar e outros campos
-        (id_db, numero_di, data_registro_db, valor_total_reais_xml,
-         arquivo_origem, data_importacao, informacao_complementar,
-         vmle, frete, seguro, vmld, ipi, pis_pasep, cofins, icms_sc,
-         taxa_cambial_usd, taxa_siscomex, numero_invoice, peso_bruto, peso_liquido,
-         cnpj_importador, importador_nome, recinto, embalagem, quantidade_volumes, acrescimo,
-         imposto_importacao, armazenagem_db_value, frete_nacional_db_value) = di_data
+        # Acessa os dados usando .get() para robustez e legibilidade
+        # Forneça um valor padrão (0.0 ou "N/A") caso a chave não exista, para evitar erros.
+        informacao_complementar = di_data_dict.get('informacao_complementar')
+        vmld = di_data_dict.get('vmld', 0.0)
+        peso_bruto = di_data_dict.get('peso_bruto', 0.0)
+        peso_liquido = di_data_dict.get('peso_liquido', 0.0)
+        frete_nacional_db_value = di_data_dict.get('frete_nacional', 0.0) # Assume que a chave é 'frete_nacional'
 
         st.session_state.fn_transportes_processo_ref = informacao_complementar if informacao_complementar else "N/A"
         
@@ -582,8 +585,9 @@ def show_calculo_fn_transportes_page():
             _save_frete_nacional_to_db()
             # Opcional: Recarregar dados da DI para exibir o valor atualizado
             if st.session_state.fn_transportes_di_data:
-                load_fn_transportes_di_data(st.session_state.fn_transportes_di_data[0])
-                           
+                # Ao recarregar, passe o ID da DI, não a tupla completa
+                load_fn_transportes_di_data(st.session_state.fn_transportes_di_data.get('id'))
+            st.rerun()
 
     
 

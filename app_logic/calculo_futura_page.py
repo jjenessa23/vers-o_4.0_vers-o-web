@@ -62,13 +62,38 @@ def perform_futura_calculations():
 
     di_data = st.session_state.futura_di_data
 
-    # Desempacota os dados (agora com 29 campos conforme db_utils.py)
-    (id_db, numero_di, data_registro_db, valor_total_reais_xml,
-     arquivo_origem, data_importacao, informacao_complementar,
-     vmle, frete, seguro, vmld, ipi, pis_pasep, cofins, icms_sc,
-     taxa_cambial_usd, taxa_siscomex, numero_invoice, peso_bruto, peso_liquido,
-     cnpj_importador, importador_nome, recinto, embalagem, quantidade_volumes, acrescimo_xml,
-     imposto_importacao_xml, armazenagem_db, frete_nacional_db) = di_data
+    # Acessa os dados usando .get() para robustez
+    # Garante que os nomes das chaves correspondem aos campos no DB
+    # e fornece um valor padrão (0.0 ou "N/A") se a chave não existir.
+    id_db = di_data.get('id')
+    numero_di = di_data.get('numero_di')
+    data_registro_db = di_data.get('data_registro')
+    valor_total_reais_xml = di_data.get('valor_total_reais_xml', 0.0)
+    arquivo_origem = di_data.get('arquivo_origem')
+    data_importacao = di_data.get('data_importacao')
+    informacao_complementar = di_data.get('informacao_complementar')
+    vmle = di_data.get('vmle', 0.0)
+    frete = di_data.get('frete', 0.0)
+    seguro = di_data.get('seguro', 0.0)
+    vmld = di_data.get('vmld', 0.0)
+    ipi = di_data.get('ipi', 0.0)
+    pis_pasep = di_data.get('pis_pasep', 0.0)
+    cofins = di_data.get('cofins', 0.0)
+    icms_sc = di_data.get('icms_sc')
+    taxa_cambial_usd = di_data.get('taxa_cambial_usd', 0.0)
+    taxa_siscomex = di_data.get('taxa_siscomex', 0.0)
+    numero_invoice = di_data.get('numero_invoice')
+    peso_bruto = di_data.get('peso_bruto', 0.0)
+    peso_liquido = di_data.get('peso_liquido', 0.0)
+    cnpj_importador = di_data.get('cnpj_importador')
+    importador_nome = di_data.get('importador_nome')
+    recinto = di_data.get('recinto')
+    embalagem = di_data.get('embalagem')
+    quantidade_volumes = di_data.get('quantidade_volumes', 0)
+    acrescimo_xml = di_data.get('acrescimo', 0.0) # Corrigido para acrescimo_xml
+    imposto_importacao_xml = di_data.get('imposto_importacao', 0.0) # Corrigido para imposto_importacao_xml
+    armazenagem_db = di_data.get('armazenagem', 0.0)
+    frete_nacional_db = di_data.get('frete_nacional', 0.0)
 
     # Obter valores editáveis
     try:
@@ -150,23 +175,18 @@ def load_futura_di_data(declaracao_id):
         return
 
     logger.info(f"Carregando dados para DI ID (Futura): {declaracao_id}")
-    di_data_row = get_declaracao_by_id(declaracao_id)
+    di_data_dict = get_declaracao_by_id(declaracao_id) # Agora retorna um dicionário
 
-    if di_data_row:
-        # Converte sqlite3.Row para uma tupla ou lista para desempacotar
-        di_data = tuple(di_data_row)
-        st.session_state.futura_di_data = di_data
+    if di_data_dict: # Verifica se o dicionário não é None
+        st.session_state.futura_di_data = di_data_dict # Armazena o dicionário diretamente
         
-        # Desempacota os dados (agora com 29 campos)
-        (id_db, numero_di, data_registro_db, valor_total_reais_xml,
-         arquivo_origem, data_importacao, informacao_complementar,
-         vmle, frete, seguro, vmld, ipi, pis_pasep, cofins, icms_sc,
-         taxa_cambial_usd, taxa_siscomex, numero_invoice, peso_bruto, peso_liquido,
-         cnpj_importador, importador_nome, recinto, embalagem, quantidade_volumes, acrescimo,
-         imposto_importacao, armazenagem_db, frete_nacional_db) = di_data
+        # Acessa os dados usando .get() para robustez e legibilidade
+        informacao_complementar = di_data_dict.get('informacao_complementar')
+        frete = di_data_dict.get('frete', 0.0)
+        acrescimo = di_data_dict.get('acrescimo', 0.0) # Ajustado o nome da variável para 'acrescimo'
 
-        logger.info(f"DEBUG: Taxa Cambial (USD) carregada para DI {numero_di}: {taxa_cambial_usd}")
 
+        logger.info(f"DEBUG: Taxa Cambial (USD) carregada para DI {di_data_dict.get('numero_di')}: {di_data_dict.get('taxa_cambial_usd')}")
 
         st.session_state.futura_processo_ref = informacao_complementar if informacao_complementar else "N/A"
         
@@ -270,7 +290,7 @@ def show_calculo_futura_page():
     if 'futura_taxa_siscomex_display' not in st.session_state:
         st.session_state.futura_taxa_siscomex_display = "R$ 0,00"
     if 'futura_icms_sc_display' not in st.session_state:
-        st.session_state.futms_sc_display = "N/A"
+        st.session_state.futura_icms_sc_display = "N/A"
     if 'futura_total_debito_importador' not in st.session_state:
         st.session_state.futura_total_debito_importador = "R$ 0,00"
 
@@ -536,7 +556,8 @@ def show_calculo_futura_page():
 def generate_email_content_futura():
     """Gera o conteúdo do e-mail para exibição na tela Futura (Conferência)."""
     di_data = st.session_state.futura_di_data
-    referencia_processo = di_data[6] if di_data and di_data[6] else "N/A"
+    # Acessa os dados usando .get()
+    referencia_processo = di_data.get('informacao_complementar', 'N/A')
     
     # Valores do cálculo Futura
     total_debito_importador = st.session_state.futura_total_debito_importador
@@ -584,7 +605,8 @@ Obrigado,
 def generate_payment_email_content():
     """Gera o conteúdo do e-mail para Pagamento de Honorários."""
     di_data = st.session_state.futura_di_data
-    referencia_processo = di_data[6] if di_data and di_data[6] else "N/A"
+    # Acessa os dados usando .get()
+    referencia_processo = di_data.get('informacao_complementar', 'N/A')
     valor_total = st.session_state.futura_total_debito_comissaria # Usando o total da comissaria para o valor total
 
     current_hour = datetime.now().hour
@@ -618,7 +640,8 @@ Obrigado(a),
 def generate_debit_email_content():
     """Gera o conteúdo do e-mail para Débito em Conta Impostos."""
     di_data = st.session_state.futura_di_data
-    referencia_processo = di_data[6] if di_data and di_data[6] else "N/A"
+    # Acessa os dados usando .get()
+    referencia_processo = di_data.get('informacao_complementar', 'N/A')
     total_debito_importador = st.session_state.futura_total_debito_importador
 
     current_hour = datetime.now().hour

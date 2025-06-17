@@ -6,8 +6,3 @@ oauth2client
 pandas 
 altair 
 numpy
-streamlit
-google-cloud-firestore
-google-auth 
-firebase-admin
-google-cloud

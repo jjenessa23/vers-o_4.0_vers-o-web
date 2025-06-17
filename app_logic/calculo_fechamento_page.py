@@ -54,13 +54,39 @@ def perform_fechamento_calculations():
 
     di_data = st.session_state.fechamento_di_data
 
-    # Desempacota os dados da DI (29 campos)
-    (id_db, numero_di, data_registro_db, valor_total_reais_xml,
-     arquivo_origem, data_importacao, informacao_complementar,
-     vmle, frete_di, seguro_di, vmld, ipi, pis_pasep, cofins, icms_sc,
-     taxa_cambial_usd, taxa_siscomex, numero_invoice, peso_bruto, peso_liquido,
-     cnpj_importador, importador_nome, recinto, embalagem, quantidade_volumes, acrescimo,
-     imposto_importacao, armazenagem_db, frete_nacional_db) = di_data
+    # Acessa os dados usando .get() para robustez
+    # Garante que os nomes das chaves correspondem aos campos no DB
+    # e fornece um valor padrão (0.0 ou "N/A") se a chave não existir.
+    id_db = di_data.get('id')
+    numero_di = di_data.get('numero_di')
+    data_registro_db = di_data.get('data_registro')
+    valor_total_reais_xml = di_data.get('valor_total_reais_xml', 0.0)
+    arquivo_origem = di_data.get('arquivo_origem')
+    data_importacao = di_data.get('data_importacao')
+    informacao_complementar = di_data.get('informacao_complementar')
+    vmle = di_data.get('vmle', 0.0)
+    frete_di = di_data.get('frete', 0.0) # Nome da variável ajustado para evitar conflito com 'frete_internacional_pago_float'
+    seguro_di = di_data.get('seguro', 0.0)
+    vmld = di_data.get('vmld', 0.0)
+    ipi = di_data.get('ipi', 0.0)
+    pis_pasep = di_data.get('pis_pasep', 0.0)
+    cofins = di_data.get('cofins', 0.0)
+    icms_sc = di_data.get('icms_sc')
+    taxa_cambial_usd = di_data.get('taxa_cambial_usd', 0.0)
+    taxa_siscomex = di_data.get('taxa_siscomex', 0.0)
+    numero_invoice = di_data.get('numero_invoice')
+    peso_bruto = di_data.get('peso_bruto', 0.0)
+    peso_liquido = di_data.get('peso_liquido', 0.0)
+    cnpj_importador = di_data.get('cnpj_importador')
+    importador_nome = di_data.get('importador_nome')
+    recinto = di_data.get('recinto')
+    embalagem = di_data.get('embalagem')
+    quantidade_volumes = di_data.get('quantidade_volumes', 0)
+    acrescimo = di_data.get('acrescimo', 0.0)
+    imposto_importacao = di_data.get('imposto_importacao', 0.0)
+    armazenagem_db = di_data.get('armazenagem', 0.0)
+    frete_nacional_db = di_data.get('frete_nacional', 0.0)
+
 
     # --- Obter valores dos campos editáveis e labels ---
     # Lendo diretamente da chave do widget no session_state
@@ -148,19 +174,26 @@ def load_fechamento_di_data(declaracao_id):
         return
 
     logger.info(f"Carregando dados para DI ID (Fechamento): {declaracao_id}")
-    di_data_row = get_declaracao_by_id(declaracao_id)
+    di_data_dict = get_declaracao_by_id(declaracao_id) # Agora retorna um dicionário
 
-    if di_data_row:
-        di_data = tuple(di_data_row)
-        st.session_state.fechamento_di_data = di_data
+    if di_data_dict:
+        st.session_state.fechamento_di_data = di_data_dict # Armazena o dicionário diretamente
         
-        # Desempacota os dados (29 campos)
-        (id_db, numero_di, data_registro_db, valor_total_reais_xml,
-         arquivo_origem, data_importacao, informacao_complementar,
-         vmle, frete, seguro, vmld, ipi, pis_pasep, cofins, icms_sc,
-         taxa_cambial_usd, taxa_siscomex, numero_invoice, peso_bruto, peso_liquido,
-         cnpj_importador, importador_nome, recinto, embalagem, quantidade_volumes, acrescimo,
-         imposto_importacao, armazenagem_db, frete_nacional_db) = di_data
+        # Acessa os dados usando .get() para robustez e legibilidade
+        # Forneça um valor padrão (0.0 ou "N/A") caso a chave não exista, para evitar erros.
+        informacao_complementar = di_data_dict.get('informacao_complementar')
+        valor_total_reais_xml = di_data_dict.get('valor_total_reais_xml', 0.0)
+        acrescimo = di_data_dict.get('acrescimo', 0.0)
+        vmle = di_data_dict.get('vmle', 0.0)
+        frete = di_data_dict.get('frete', 0.0)
+        seguro = di_data_dict.get('seguro', 0.0)
+        vmld = di_data_dict.get('vmld', 0.0)
+        imposto_importacao = di_data_dict.get('imposto_importacao', 0.0)
+        ipi = di_data_dict.get('ipi', 0.0)
+        pis_pasep = di_data_dict.get('pis_pasep', 0.0)
+        cofins = di_data_dict.get('cofins', 0.0)
+        armazenagem_db = di_data_dict.get('armazenagem', 0.0)
+        frete_nacional_db = di_data_dict.get('frete_nacional', 0.0)
 
         st.session_state.fechamento_processo_ref = f"Processo : {informacao_complementar if informacao_complementar else 'N/A'}"
         

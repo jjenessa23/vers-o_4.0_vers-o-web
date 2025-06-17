@@ -15,6 +15,9 @@ except ImportError:
     ncm_list_page = None
 
 logger = logging.getLogger(__name__)
+# Definir o nível de logging para DEBUG para ver os logs mais detalhados
+logger.setLevel(logging.DEBUG)
+
 
 def set_background_image(image_path: str):
     """Define uma imagem de fundo para o aplicativo Streamlit com opacidade."""
@@ -114,27 +117,38 @@ def show_produtos_page():
 
     st.markdown("---")
 
-    # Carregar todos os itens de processo com a referência do processo
+    logger.info("[produtos_page] Chamando db_manager.get_all_process_items_with_process_ref()")
     all_process_items_raw = db_manager.get_all_process_items_with_process_ref()
+    logger.info(f"[produtos_page] db_manager.get_all_process_items_with_process_ref() retornou {len(all_process_items_raw)} itens.")
+    if all_process_items_raw:
+        logger.debug(f"[produtos_page] Primeiro item retornado: {all_process_items_raw[0]}")
+    else:
+        logger.debug("[produtos_page] Nenhum item retornado por db_manager.get_all_process_items_with_process_ref().")
     
     if not all_process_items_raw:
         st.info("Nenhum produto encontrado. Adicione itens aos processos para que apareçam aqui.")
         return
 
     df_items = pd.DataFrame(all_process_items_raw)
+    logger.info(f"[produtos_page] DataFrame df_items criado. Colunas: {df_items.columns.tolist()}")
+    logger.debug(f"[produtos_page] Cabeçalho do df_items:\n{df_items.head()}")
 
     # Adicionar a coluna 'Status_Geral' se não existir, com um valor padrão
     if 'Status_Geral' not in df_items.columns:
         df_items['Status_Geral'] = 'Status Desconhecido'
+        logger.warning("[produtos_page] Coluna 'Status_Geral' não encontrada no DataFrame, adicionada com valor padrão.")
 
     # Limpar e formatar o NCM para filtragem
     if 'ncm' in df_items.columns:
         df_items['ncm_cleaned'] = df_items['ncm'].astype(str).apply(lambda x: re.sub(r'\D', '', x) if x else '')
     else:
         df_items['ncm_cleaned'] = '' # Add if column doesn't exist to avoid error
+        logger.warning("[produtos_page] Coluna 'ncm' não encontrada no DataFrame, 'ncm_cleaned' será vazia.")
+
 
     # Aplicar filtros
     filtered_df_items = df_items.copy()
+    logger.info(f"[produtos_page] DataFrame antes dos filtros: {len(filtered_df_items)} itens.")
 
     if st.session_state.produtos_filter_codigo_interno:
         filtered_df_items = filtered_df_items[
@@ -142,18 +156,24 @@ def show_produtos_page():
                 st.session_state.produtos_filter_codigo_interno, case=False, na=False
             )
         ]
+        logger.info(f"[produtos_page] Após filtro de Código Interno ('{st.session_state.produtos_filter_codigo_interno}'): {len(filtered_df_items)} itens.")
+    
     if st.session_state.produtos_filter_denominacao:
         filtered_df_items = filtered_df_items[
             filtered_df_items['denominacao_produto'].astype(str).str.contains(
                 st.session_state.produtos_filter_denominacao, case=False, na=False
             )
         ]
+        logger.info(f"[produtos_page] Após filtro de Denominação ('{st.session_state.produtos_filter_denominacao}'): {len(filtered_df_items)} itens.")
+    
     if st.session_state.produtos_filter_sku:
         filtered_df_items = filtered_df_items[
             filtered_df_items['sku'].astype(str).str.contains(
                 st.session_state.produtos_filter_sku, case=False, na=False
             )
         ]
+        logger.info(f"[produtos_page] Após filtro de SKU ('{st.session_state.produtos_filter_sku}'): {len(filtered_df_items)} itens.")
+    
     if st.session_state.produtos_filter_ncm:
         # Filter on the cleaned NCM code
         filtered_df_items = filtered_df_items[
@@ -161,7 +181,10 @@ def show_produtos_page():
                 re.sub(r'\D', '', st.session_state.produtos_filter_ncm), case=False, na=False
             )
         ]
+        logger.info(f"[produtos_page] Após filtro de NCM ('{st.session_state.produtos_filter_ncm}'): {len(filtered_df_items)} itens.")
     
+    logger.info(f"[produtos_page] DataFrame final após todos os filtros: {len(filtered_df_items)} itens.")
+
     if filtered_df_items.empty:
         st.info("Nenhum produto encontrado com os filtros aplicados.")
         return
