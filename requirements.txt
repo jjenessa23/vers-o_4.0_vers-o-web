@@ -8,3 +8,4 @@ altair
 numpy
 pdfplumber
 google-cloud-firestore
+firebase-admin
