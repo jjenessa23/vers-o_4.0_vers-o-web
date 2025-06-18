@@ -6,10 +6,11 @@ from datetime import datetime
 
 # Importa as funções reais do db_utils
 try:
-    from db_utils import get_declaracao_by_id
+    from db_utils import get_declaracao_by_id, get_frete_internacional_by_referencia # NOVO: Importa get_frete_internacional_by_referencia
 except ImportError:
     st.error("Erro: db_utils não encontrado. Certifique-se de que o arquivo está acessível.")
     get_declaracao_by_id = None
+    get_frete_internacional_by_referencia = None # Garante que a função está definida mesmo com erro
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,7 @@ def perform_fechamento_calculations():
     st.session_state.fechamento_despachante_display = _format_currency(despachante_fixo)
     st.session_state.fechamento_connecta_display = _format_currency(connecta_fixo)
     st.session_state.fechamento_descarregamento_display = "R$ -" if descarregamento_fixo == 0 else _format_currency(descarregamento_fixo)
+    st.session_state.fechamento_taxas_destino_display = _format_currency(taxas_destino_calculado) # NOVO: Atualizado para refletir o valor calculado
     st.session_state.fechamento_icms_4_percent_display = _format_currency(icms_4_percent_fixo)
 
 
@@ -161,7 +163,7 @@ def perform_fechamento_calculations():
     st.session_state.fechamento_diferenca_final_value = _format_currency(diferenca_calculada)
 
     # Força a re-execução da página para atualizar os valores exibidos
-    st.rerun()
+    # st.rerun() # Removido para evitar loop infinito em on_change
 
 
 def load_fechamento_di_data(declaracao_id):
@@ -197,10 +199,25 @@ def load_fechamento_di_data(declaracao_id):
 
         st.session_state.fechamento_processo_ref = f"Processo : {informacao_complementar if informacao_complementar else 'N/A'}"
         
+        # NOVO: Tenta buscar o frete internacional pelo 'informacao_complementar'
+        frete_internacional_calculado_val = frete # Valor padrão é o frete da DI
+        if informacao_complementar and get_frete_internacional_by_referencia:
+            frete_data_from_db = get_frete_internacional_by_referencia(informacao_complementar)
+            if frete_data_from_db:
+                if frete_data_from_db['tipo_frete'] == 'Aéreo':
+                    frete_internacional_calculado_val = frete_data_from_db.get('total_aereo_brl', frete)
+                elif frete_data_from_db['tipo_frete'] == 'Marítimo':
+                    frete_internacional_calculado_val = frete_data_from_db.get('total_maritimo_brl', frete)
+                logger.info(f"Frete internacional carregado do DB para Fechamento: {frete_internacional_calculado_val}")
+            else:
+                logger.info(f"Nenhum frete internacional encontrado no DB para referência '{informacao_complementar}'. Usando o frete da DI.")
+
+
         # Inicializa os campos editáveis (agora usando as chaves dos widgets diretamente para consistência)
         st.session_state.fechamento_valor_nfs_input = _format_currency(0.00) # Inicializa a chave do widget
         st.session_state.fechamento_afrmm_input = _format_currency(0.00) # Inicializa a chave do widget
-        st.session_state.fechamento_frete_internacional_pago_input = _format_currency(frete) # Inicializa a chave do widget com o frete da DI
+        # NOVO: Preenche o campo 'frete_internacional_pago_input' com o valor do banco de frete internacional
+        st.session_state.fechamento_frete_internacional_pago_input = _format_currency(frete_internacional_calculado_val) 
 
         # Atualiza os labels da seção "Base de Cálculo"
         st.session_state.fechamento_valor_mercadoria_display = _format_currency(valor_total_reais_xml)
@@ -458,3 +475,4 @@ def show_calculo_fechamento_page():
     if st.button("Voltar para Detalhes da DI", key="fechamento_voltar_di"):
         st.session_state.current_page = "Pagamentos"
         st.rerun()
+

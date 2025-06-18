@@ -9,8 +9,19 @@ import base64
 from db_utils import (
     get_declaracao_by_id,
     get_declaracao_by_referencia,
-    get_all_declaracoes # NOVO: Importa a função para buscar todas as declarações
+    get_all_declaracoes,
+    get_frete_internacional_by_referencia # NOVO: Importa a função para buscar frete internacional
 )
+# Importar a função _clean_reference_string do db_utils
+try:
+    from db_utils import _clean_reference_string
+except ImportError:
+    # Fallback simples se não puder ser importado (apenas para compatibilidade)
+    def _clean_reference_string(s: str) -> str:
+        if not isinstance(s, str):
+            return str(s) if s is not None else ""
+        return s.strip().upper()
+
 
 # Importar as páginas de cálculo Streamlit
 from app_logic import calculo_portonave_page
@@ -25,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 # --- Função para definir imagem de fundo com opacidade (copiada de app_main.py) ---
 def set_background_image(image_path):
+    """Define uma imagem de fundo para o aplicativo Streamlit com opacidade."""
     try:
         with open(image_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode()
@@ -139,19 +151,22 @@ def icon_button(label, emoji_icon, key, disabled=False, use_container_width=True
     )
 
 # --- Funções de Ação ---
-def load_di_details(input_value):
+
+def _perform_di_loading(input_value):
     """
-    Carrega os detalhes de uma DI do banco de dados, aceitando ID ou Referência.
+    Função auxiliar que contém a lógica de carregamento da DI.
+    Atualiza st.session_state diretamente, não contém st.rerun().
     """
     st.session_state.detalhes_di_data = None # Limpa dados anteriores
+    st.session_state.frete_internacional_calculado = 0.0 # Limpa o frete internacional calculado
 
     if not input_value:
-        st.warning("Por favor, selecione ou insira um valor para carregar a DI.")
-        return
-    
+        st.info("Digite uma Referência ou ID da DI para carregar os detalhes.")
+        return False # Indica que nenhum dado foi carregado
+
     if get_declaracao_by_id is None or get_declaracao_by_referencia is None:
         st.error("Serviço de banco de dados não disponível.")
-        return
+        return False
 
     di_data_row = None
     
@@ -160,27 +175,55 @@ def load_di_details(input_value):
         declaracao_id = int(input_value)
         logger.info(f"Tentando carregar DI por ID: {declaracao_id}")
         di_data_row = get_declaracao_by_id(declaracao_id)
-        if di_data_row:
-            st.session_state.detalhes_di_data = dict(di_data_row)
-            st.success(f"DI {_format_di_number(st.session_state.detalhes_di_data.get('numero_di', ''))} carregada por ID com sucesso!")
-            logging.info(f"Detalhes da DI {declaracao_id} carregados por ID.")
-            return
-
     except ValueError:
         # Se não for um ID numérico, tenta carregar por Referência
-        # Normaliza a string de referência para maiúsculas e remove espaços extras
-        cleaned_input_value = str(input_value).strip().upper() 
+        cleaned_input_value = _clean_reference_string(input_value) # Usando a função de limpeza do db_utils
         logger.info(f"Valor '{input_value}' não é um ID numérico. Tentando buscar por Referência (normalizada): '{cleaned_input_value}'.")
         di_data_row = get_declaracao_by_referencia(cleaned_input_value)
-        if di_data_row:
-            st.session_state.detalhes_di_data = dict(di_data_row)
-            st.success(f"DI {_format_di_number(st.session_state.detalhes_di_data.get('numero_di', ''))} carregada por Referência com sucesso!")
-            logging.info(f"Detalhes da DI '{cleaned_input_value}' carregados por Referência.")
-            return
+    
+    if di_data_row:
+        st.session_state.detalhes_di_data = dict(di_data_row)
+        st.success(f"DI {_format_di_number(st.session_state.detalhes_di_data.get('numero_di', ''))} carregada com sucesso!")
+        logging.info(f"Detalhes da DI '{input_value}' carregados.")
+        
+        # Tenta carregar o frete internacional associado
+        referencia_processo = st.session_state.detalhes_di_data.get('informacao_complementar')
+        if referencia_processo:
+            frete_internacional_data = get_frete_internacional_by_referencia(referencia_processo)
+            if frete_internacional_data:
+                # Usa o total calculado dependendo do tipo de frete
+                if frete_internacional_data['tipo_frete'] == 'Aéreo':
+                    st.session_state.frete_internacional_calculado = frete_internacional_data.get('total_aereo_brl', 0.0)
+                elif frete_internacional_data['tipo_frete'] == 'Marítimo':
+                    st.session_state.frete_internacional_calculado = frete_internacional_data.get('total_maritimo_brl', 0.0)
+                logger.info(f"Frete internacional de R$ {st.session_state.frete_internacional_calculado:.2f} carregado para referência '{referencia_processo}'.")
+            else:
+                logger.info(f"Nenhum frete internacional encontrado para a referência '{referencia_processo}'.")
+        return True # Indica sucesso no carregamento
+    else:
+        st.error(f"Nenhum dado encontrado para a DI: '{input_value}'. Verifique o ID ou a Referência.")
+        logging.warning(f"Tentativa de carregar DI '{input_value}' falhou: não encontrada por ID ou Referência.")
+        return False # Indica falha no carregamento
 
-    # Se chegou aqui, não encontrou por ID nem por Referência
-    st.error(f"Nenhum dado encontrado para a DI: '{input_value}'. Verifique o ID ou a Referência.")
-    logging.warning(f"Tentativa de carregar DI '{input_value}' falhou: não encontrada por ID ou Referência.")
+
+def load_di_details_manual(input_value):
+    """
+    Carrega os detalhes de uma DI do banco de dados, aceitando ID ou Referência.
+    Esta função é chamada explicitamente (e.g., ao navegar para a página).
+    """
+    _perform_di_loading(input_value)
+    # Não há st.rerun() aqui, pois a reexecução do script já está em andamento.
+
+
+def load_di_details():
+    """
+    Callback para o on_change do st.text_input.
+    Lê o valor do widget e chama a lógica de carregamento.
+    """
+    if _perform_di_loading(st.session_state.detalhes_di_input_text):
+        # Se o carregamento for bem-sucedido, force um rerun para atualizar a UI.
+        # Este rerun é geralmente seguro aqui pois é o fim do callback.
+        st.rerun()
 
 
 def navigate_to_calc_page(page_name, di_id_session_key):
@@ -208,6 +251,7 @@ def navigate_to_calc_page(page_name, di_id_session_key):
     else:
         st.warning("Por favor, carregue uma DI antes de ir para o cálculo.")
 
+
 # --- Tela Principal do Streamlit para Detalhes DI e Cálculos ---
 def show_page():
     # --- Configuração da Imagem de Fundo para a página Detalhes DI e Cálculos ---
@@ -217,52 +261,63 @@ def show_page():
 
     
     # Inicializa o estado da sessão para esta página
+    # O valor inicial do text_input, se a página for recarregada sem navegação externa
+    # será o último valor que o usuário digitou ou que foi preenchido.
     if 'detalhes_di_data' not in st.session_state:
         st.session_state.detalhes_di_data = None
-    if 'detalhes_di_input_value' not in st.session_state:
-        st.session_state.detalhes_di_input_value = "" # Será usado para o valor do selectbox
+    if 'detalhes_di_input_text' not in st.session_state: 
+        st.session_state.detalhes_di_input_text = "" 
+    if 'frete_internacional_calculado' not in st.session_state: 
+        st.session_state.frete_internacional_calculado = 0.0
+
+    # NOVO: Estado para rastrear o valor da referência que já foi processada no carregamento inicial.
+    # Isso evita reprocessar a mesma DI múltiplas vezes se o valor do input_text não mudou.
+    if 'last_processed_di_reference' not in st.session_state:
+        st.session_state.last_processed_di_reference = None
+    
+    # Lógica de carregamento inicial da DI ao entrar na página
+    # Esta lógica é acionada se:
+    # 1. Há um valor em detalhes_di_input_text (passado da página anterior).
+    # 2. Esse valor é diferente da última referência que já foi processada (evita loops).
+    # 3. st.session_state.detalhes_di_data ainda não está populado para a referência atual
+    #    OU se o input_text mudou e a DI carregada não corresponde mais.
+    
+    current_input_ref = st.session_state.detalhes_di_input_text
+    current_loaded_di_ref = st.session_state.detalhes_di_data.get('informacao_complementar') if st.session_state.detalhes_di_data else None
+
+    # Condição para tentar o carregamento inicial:
+    # - Se o input_text não está vazio
+    # - E o input_text é diferente da última referência que tentamos carregar
+    # - OU se não há DI carregada atualmente
+    if current_input_ref and (
+        current_input_ref != st.session_state.last_processed_di_reference or
+        current_loaded_di_ref is None or
+        _clean_reference_string(current_input_ref) != _clean_reference_string(current_loaded_di_ref) # Verifica se a referência mudou, ignorando case/espaços
+    ):
+        logger.info(f"Detectada nova referência '{current_input_ref}'. Tentando carregamento inicial da DI.")
+        if _perform_di_loading(current_input_ref):
+            st.session_state.last_processed_di_reference = current_input_ref # Marca como processado com sucesso/tentativa
+        # else:
+            # st.session_state.last_processed_di_reference = None # Se falhou, resetar para tentar novamente na próxima
+        # IMPORTANTE: Se o perform_di_loading falhar, ele já exibe um st.error.
+        # Não precisamos de um st.rerun() aqui, pois o script continua a re-renderizar.
 
     # Seção para carregar DI
     st.markdown("#### Carregar Declaração de Importação")
     
     col_1 = st.columns(2)
     with col_1[0]:
-        all_declarations_raw = get_all_declaracoes() # Obtém todas as declarações
-        # Extrai as referências e filtra valores nulos/vazios
-        all_references = sorted(list(set([d['informacao_complementar'] for d in all_declarations_raw if d and d['informacao_complementar']])))
-        
-        # Adiciona uma opção vazia no início
-        display_references = [""] + all_references
-
-        # Encontra o índice da referência atualmente selecionada no selectbox
-        # ou usa 0 (primeira opção vazia) se nada estiver selecionado/carregado
-        default_index = 0
-        if st.session_state.detalhes_di_input_value in display_references:
-            default_index = display_references.index(st.session_state.detalhes_di_input_value)
-        elif st.session_state.detalhes_di_data and st.session_state.detalhes_di_data.get('informacao_complementar') in display_references:
-            default_index = display_references.index(st.session_state.detalhes_di_data.get('informacao_complementar'))
-
-        di_selected_value = st.selectbox(
-            "Referência para Carregar",
-            options=display_references,
-            index=default_index,
-            key="detalhes_di_load_selectbox"
+        # st.text_input com carregamento automático no on_change
+        # O valor do value é lido do session_state, garantindo que o valor persista entre reruns
+        st.text_input(
+            "Referência para Carregar (ID ou Processo)",
+            value=st.session_state.detalhes_di_input_text, 
+            key="detalhes_di_input_text", 
+            on_change=load_di_details # Callback automático ao mudar o texto
         )
-        # Atualiza o input_value com o que foi selecionado no selectbox para a função load_di_details
-        st.session_state.detalhes_di_input_value = di_selected_value
         
-
-    col_buttons = st.columns(8)
-    with col_buttons[1]:
-        # O botão "Carregar DI" usará o valor atual do selectbox
-        if icon_button("Carregar DI", "📄", "load_di_details_button", use_container_width=True):
-            load_di_details(st.session_state.detalhes_di_input_value)
-    with col_buttons[0]:
-        if icon_button("Limpar Campos", "🧹", "clear_di_details_button", use_container_width=True):
-            st.session_state.detalhes_di_input_value = "" # Limpa o selectbox
-            st.session_state.detalhes_di_data = None
-            st.rerun()
-
+    # O botão "Limpar Campos" foi removido conforme solicitado.
+            
     # Exibir detalhes da DI carregada
     if st.session_state.detalhes_di_data:
         di_data = st.session_state.detalhes_di_data
@@ -279,7 +334,7 @@ def show_page():
                     "REFERENCIA": di_data.get('informacao_complementar'),
                     "Data do Registro": _format_date(di_data.get('data_registro')),
                     "VMLE": _format_currency(di_data.get('vmle')),
-                    "Frete": _format_currency(di_data.get('frete')),
+                    "Frete (DI)": _format_currency(di_data.get('frete')), # Rotulado como Frete (DI) para clareza
                     "Seguro": _format_currency(di_data.get('seguro')),
                     "VMLD": _format_currency(di_data.get('vmld')),
                     "II": _format_currency(di_data.get('imposto_importacao')),
@@ -300,6 +355,7 @@ def show_page():
                     "Acréscimo": _format_currency(di_data.get('acrescimo')),
                     "Armazenagem (DB)": _format_currency(di_data.get('armazenagem')),
                     "Frete Nacional (DB)": _format_currency(di_data.get('frete_nacional')),
+                    "Frete Internacional (Calculado)": _format_currency(st.session_state.frete_internacional_calculado), # NOVO: Exibe o frete internacional calculado
                     "Arquivo Origem": di_data.get('arquivo_origem'),
                     "Data Importação": _format_date(di_data.get('data_importacao', '').split(' ')[0])
                 }
@@ -354,12 +410,12 @@ def show_page():
                 # --- Categoria: Conferências ---
                 st.markdown("###### Conferências")
                 icon_button("Seguro", "✅", "calc_seguro_button", disabled=True)
-                if icon_button("Fechamento", "🔒", "calc_fechamento_button"):
+                if icon_button("Fechamento", "�", "calc_fechamento_button"):
                     navigate_to_calc_page("Cálculo Fechamento", "selected_di_id_fechamento")
                 st.markdown("---")
 
     else:
-        st.info("Nenhuma Declaração de Importação carregada. Por favor, selecione uma Referência e clique em 'Carregar DI'.")
+        st.info("Nenhuma Declaração de Importação carregada. Por favor, digite uma Referência ou ID para começar.")
 
     st.markdown("---")
     st.write("Esta tela permite visualizar os detalhes de uma Declaração de Importação e navegar para telas de cálculo específicas.")

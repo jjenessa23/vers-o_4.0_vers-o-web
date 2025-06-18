@@ -214,6 +214,36 @@ def show_produtos_page():
         "peso_unitario": "Peso Unitário (KG)"
     })
 
+    # --- Adicionar ordenação ao DataFrame antes de exibir ---
+    # As colunas para ordenação devem existir no DataFrame original (filtered_df_items)
+    # ou nas colunas renomeadas de 'display_df'.
+    # Aqui, usaremos as colunas renomeadas para garantir a ordenação após a renomeação.
+    
+    # Definir uma ordem personalizada para "Status do Processo" se houver
+    # Isso ajuda a organizar status como "Embarcado", "Desembarcado", "Em Análise", etc.
+    # Esta é uma lista de exemplo, ajuste conforme os status reais do seu sistema
+    status_order_custom = [
+        "Processo Criado", "Em produção", "Pré Embarque", "Embarcado",
+        "Chegada Recinto", "Registrado", "Liberado", "Agendado",
+        "Chegada Pichau", "Encerrado", "Verificando", "Limbo Consolidado",
+        "Limbo Saldo", "Status Desconhecido", "Não Definido"
+    ]
+    
+    # Se 'Status do Processo' estiver no DataFrame e tivermos uma ordem personalizada
+    if 'Status do Processo' in display_df.columns:
+        # Converter para tipo Categórico para ordenar pela ordem personalizada
+        display_df['Status do Processo'] = pd.Categorical(
+            display_df['Status do Processo'],
+            categories=status_order_custom,
+            ordered=True
+        )
+    
+    # Ordenar o DataFrame
+    # Primeiro por 'Status do Processo' (se categórico, usará a ordem definida), depois por 'Referência do Processo'
+    display_df = display_df.sort_values(by=["Status do Processo", "Referência do Processo"], ascending=[True, True])
+    # --- Fim da ordenação ---
+
+
     # Formatar valores numéricos para exibição
     for col in ["Quantidade", "Valor Unitário (USD)", "Valor Total Item (USD)", "Peso Unitário (KG)"]:
         if col in display_df.columns:

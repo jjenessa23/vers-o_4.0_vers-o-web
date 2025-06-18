@@ -122,6 +122,7 @@ if not st.session_state.firebase_ready:
 # Importar funções de utilidade do novo módulo
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app_logic'))
 
+
 from app_logic.utils import set_background_image, set_sidebar_background_image, get_dolar_cotacao
 
 
@@ -509,7 +510,7 @@ if not st.session_state.authenticated:
         st.markdown("---")
         
         
-        st.markdown("**Versão da Aplicação:** 2.0.1")
+        st.markdown("**Versão da Aplicação:** 2.2.1")
         st.info("Informe as credenciais de login ao sistema para continuar.")
              
              
@@ -640,21 +641,49 @@ else:
             st.header("Bem-vindo ao Gerenciamento COMEX")
             st.write("Use o menu lateral para navegar.")
             
-            st.subheader("Cotação do Dólar (USD) - Hoje")
+            st.subheader("Cotação do Dólar (USD)")
+            
+            # Tenta buscar a última cotação do dólar do Firestore
+            last_dolar_cotacao = None
+            if st.session_state.get('firebase_ready', False):
+                last_dolar_cotacao = db_utils.get_latest_dolar_cotacao()
+            
+            # Se encontrou a última cotação no Firestore, exibe
+            if last_dolar_cotacao:
+                st.info("Mostrando a última cotação disponível do banco de dados:")
+                col1_db, col2_db = st.columns(2)
+                with col1_db:
+                    st.metric(label="Dólar Abertura Compra (DB) 💸", value=last_dolar_cotacao.get('abertura_compra', 'N/A'))
+                    st.metric(label="Dólar Abertura Venda (DB) 💸", value=last_dolar_cotacao.get('abertura_venda', 'N/A'))
+                with col2_db:
+                    st.metric(label="Dólar PTAX Compra (DB) 🪙", value=last_dolar_cotacao.get('ptax_compra', 'N/A'))
+                    st.metric(label="Dólar PTAX Venda (DB) 🪙", value=last_dolar_cotacao.get('ptax_venda', 'N/A'))
+                
+                st.markdown("---")
+                st.subheader("Cotação do Dólar (USD) - Atualizada Agora")
+            
+            # Puxa o valor do dólar da API externa
             dolar_data = get_dolar_cotacao()
             
             if dolar_data:
-                col1, col2, col3, col4, col5, col6 = st.columns(6)
+                col1_api, col2_api, col3_api, col4_api, col5_api, col6_api = st.columns(6)
                 
-                with col1:
+                with col1_api:
                     st.metric(label="Dólar Abertura Compra 💸", value=dolar_data['abertura_compra'])
                     st.metric(label="Dólar Abertura Venda 💸", value=dolar_data['abertura_venda'])
                 
-                with col2:
+                with col2_api:
                     st.metric(label="Dólar PTAX Compra 🪙", value=dolar_data['ptax_compra'])
                     st.metric(label="Dólar PTAX Venda 🪙", value=dolar_data['ptax_venda'])
+                
+                # Salva a cotação recém-obtida no Firestore
+                if st.session_state.get('firebase_ready', False):
+                    db_utils.save_dolar_cotacao(dolar_data)
+                
             else:
-                st.warning("Não foi possível carregar a cotação do dólar. Verifique sua conexão ou tente mais tarde.")
+                st.warning("Não foi possível carregar a cotação do dólar da API. Verifique sua conexão ou tente mais tarde.")
+                if not last_dolar_cotacao: # Se não conseguiu da API e não tem do DB
+                    st.error("Não há cotações do dólar disponíveis.")
             
             st.markdown("---")
 

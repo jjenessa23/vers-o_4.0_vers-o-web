@@ -91,6 +91,7 @@ def set_background_image(image_path: str):
     except Exception as e:
         st.error(f"Erro ao carregar a imagem de fundo: {e}")
 
+
 # --- Funções Auxiliares de Formatação ---
 def _format_date_display(date_str: Optional[str]) -> str:
     """Formata uma string de data (YYYY-MM-DD) para exibição (DD/MM/YYYY)."""
@@ -1052,15 +1053,15 @@ def _export_processes_to_excel(df_data: pd.DataFrame):
 
 # Cores para os status (revisadas para um visual mais agradável e claro)
 STATUS_COLORS_HEX = {
-    'Encerrado': '#868E96',        # Cinza Neutro
-    'Chegada Pichau': "#007BFF",   # Azul Padrão
-    'Agendado': '#6C5CE7',         # Roxo Suave
+    'Encerrado': "#FFFDFD",        # Cinza Neutro
+    'Chegada Pichau': "#636464",   # Azul Padrão
+    'Agendado': "#888888",         # Roxo Suave
     'Liberado': '#28A745',         # Verde Sucesso
-    'Registrado': '#17A2B8',       # Azul Ciano Claro
-    'Chegada Recinto': '#FFC107',  # Amarelo Alerta
+    'Registrado': "#CFE600",       # Azul Ciano Claro
+    'Chegada Recinto': "#0787FF",  # Amarelo Alerta
     'Embarcado': '#DC3545',        # Vermelho Erro/Perigo
     'Limbo Consolidado': '#6C757D',# Cinza Chumbo
-    'Limbo Saldo': '#6C757D',      # Cinza Chumbo
+    'Limbo Saldo': "#0A6D05",      # Cinza Chumbo
     'Pré Embarque': '#20C997',     # Verde Água Suave
     'Verificando': '#FD7E14',      # Laranja Alerta
     'Em produção': '#6F42C1',      # Roxo Médio
@@ -1244,6 +1245,7 @@ def _display_followup_list_page():
         .process-card-doc-status {
             font-size: 1.1em; /* Ajusta o tamanho dos emojis */
         }
+        
         </style>
     """, unsafe_allow_html=True)
 
@@ -1281,69 +1283,97 @@ def _display_followup_list_page():
             status_color = STATUS_COLORS_HEX.get(status_geral, STATUS_COLORS_HEX['Sem Status'])
             
             # Layout em mais colunas
-            col_main_info, col_dates_status, col_docs_status, col_actions = st.columns([0.25, 0.25, 0.35, 0.15])
+            col_main_info, col_dates_status, col_docs_status, col_actions = st.columns([0.15, 0.25, 0.35, 0.15])
             
             with col_main_info:
                 st.markdown(f"<div style='font-size: 2.5em; text-align: center; color: #F8F8F8;'>{modal_icon}</div>", unsafe_allow_html=True)
                 st.markdown(f"""
                     <div style='color: #E0E0E0; text-align: center;'>
                         <strong>{processo_novo}</strong><br>
-                        <span class="process-card-status-text" style="color: {status_color}; font-size: 0.9em;">{status_geral}</span><br>
                         <small>{fornecedor}</small><br>
-                        <small>Nº Invoice: {n_invoice}</small>
                     </div>
                 """, unsafe_allow_html=True)
             
             with col_dates_status:
                 st.markdown(f"""
                     <div style='color: #E0E0E0;'>
+                        <span class="process-card-status-text" style="color: {status_color}; font-size: 1.2em;">{status_geral}</span><br>
                         <strong>Qtd:</strong> {quantidade} | <strong>Valor (US$):</strong> {_format_usd_display(valor_usd).replace('US$', '')}<br>
-                        <strong>Data Compra:</strong> {data_compra}<br>
-                        <strong>Data Emb.:</strong> {data_embarque}<br>
-                        <strong>Prev. Pichau:</strong> {previsao_pichau}
+                        <small>Nº Invoice: {n_invoice}</small><br>
+                        <strong>Observação:</strong> <span style="color:{'#FF0000' if observacao != 'N/A' and observacao != 'None' else '#E0E0E0'}">{observacao if observacao not in ['N/A', 'None'] else 'Nenhuma'}</span><br>
+
                     </div>
                 """, unsafe_allow_html=True)
 
             with col_docs_status:
                 # Revertendo para exibição em uma linha para as informações 'Sim/Não'
-                st.markdown(f"""
-                    <div style='display: flex; justify-content: space-around; font-size: 0.9em; color: #E0E0E0;'>
-                        <span>Pago: <span class="process-card-doc-status">{pago}</span></span>
-                        <span>Docs Rev.: <span class="process-card-doc-status">{docs_revisados}</span></span>
-                        <span>Conh. Emb.: <span class="process-card-doc-status">{conhecimento_embarque}</span></span>
-                        <span>Desc. Feita: <span class="process-card-doc-status">{descricao_feita}</span></span>
-                        <span>Nota feita: <span class="process-card-doc-status">{nota_feita}</span></span>
-                        <span>Conferido: <span class="process-card-doc-status">{conferido}</span></span>
-                    </div>
-                """, unsafe_allow_html=True)
+                
+                    st.markdown(f"""
+                        <div style='color: #E0E0E0;'>
+                            <br><strong>Data Compra:</strong> {data_compra}<br>
+                            <strong>Data Emb.:</strong> {data_embarque} |
+                            <strong>Prev. Pichau:</strong> {previsao_pichau}
+                        </div>
+                    """, unsafe_allow_html=True)
 
             with col_actions:
+                # Adiciona CSS personalizado apenas para os botões dos cards
+                st.markdown("""
+                    <style>
+                    /* Aplica estilo apenas aos botões dentro de col_actions */
+                    [data-testid="column"] [data-testid="stHorizontalBlock"] .stButton > button {
+                        width: 100% !important;
+                        margin: 1.8rem !important;
+                        padding: 0.8rem !important;
+                        box-sizing: border-box !important;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
+                
                 # Botões em duas colunas com emojis e chaves únicas
                 action_col1, action_col2 = st.columns(2)
                 with action_col1:
                     # Chave agora usa unique_id_for_key e row_index para garantir unicidade
-                    if st.button("🔍 Consultar", key=f"card_query_{unique_id_for_key}_{row_index}", help="Clique para consultar este processo.", use_container_width=True):
+                    if st.button("🔍", key=f"card_query_{unique_id_for_key}_{row_index}", 
+                               help="Clique para consultar este processo.", 
+                               use_container_width=True):
                         st.session_state.selected_process_data = row_dict 
-                        _open_process_query_page(unique_id_for_key) # Passa o ID único do processo
+                        _open_process_query_page(unique_id_for_key)
                 with action_col2:
-                    # Chave agora usa unique_id_for_key e row_index para garantir unicidade
-                    if st.button("✏️ Editar", key=f"card_edit_{unique_id_for_key}_{row_index}", help="Clique para editar este processo.", use_container_width=True):
+                    if st.button("✏️", key=f"card_edit_{unique_id_for_key}_{row_index}", 
+                               help="Clique para editar este processo.", 
+                               use_container_width=True):
                         st.session_state.selected_process_data = row_dict
-                        _open_edit_process_popup(unique_id_for_key) # Passa o ID único do processo
+                        _open_edit_process_popup(unique_id_for_key)
                 
                 # Botões para clonar e excluir (agora arquivar)
                 action_col3, action_col4 = st.columns(2)
                 with action_col3:
-                    if st.button("➕ Clonar", key=f"card_clone_{unique_id_for_key}_{row_index}", help="Clique para clonar este processo.", use_container_width=True):
+                    if st.button("➕", key=f"card_clone_{unique_id_for_key}_{row_index}", 
+                               help="Clique para clonar este processo.", 
+                               use_container_width=True):
                         st.session_state.selected_process_data = row_dict
-                        _open_edit_process_popup(unique_id_for_key, is_cloning=True) # Passa o ID único do processo
+                        _open_edit_process_popup(unique_id_for_key, is_cloning=True)
                 with action_col4:
-                    if st.button("🗑️ Arquivar", key=f"card_delete_{unique_id_for_key}_{row_index}", help="Clique para arquivar este processo. Ele não será excluído, mas ficará oculto da tela principal.", use_container_width=True):
+                    if st.button("🗑️", key=f"card_delete_{unique_id_for_key}_{row_index}", 
+                               help="Clique para arquivar este processo. Ele não será excluído, mas ficará oculto da tela principal.", 
+                               use_container_width=True):
                         st.session_state.show_delete_confirm_popup = True
                         st.session_state.delete_process_id_to_confirm = unique_id_for_key
                         st.session_state.delete_process_name_to_confirm = processo_novo
                         st.rerun()
-
+            col1_empty, col1_docs_status,col3_empty = st.columns([0.08, 0.32, 0.11])
+            with col1_docs_status:
+                st.markdown(f"""
+                            <div style='display: flex; justify-content: space-around; font-size: 0.9em; color: #E0E0E0;'>
+                                <span>Pago: <span class="process-card-doc-status">{pago}</span></span>
+                                <span>Docs Rev.: <span class="process-card-doc-status">{docs_revisados}</span></span>
+                                <span>Conh. Emb.: <span class="process-card-doc-status">{conhecimento_embarque}</span></span>                  
+                                <span>Desc. Feita: <span class="process-card-doc-status">{descricao_feita}</span></span>
+                                <span>Nota feita: <span class="process-card-doc-status">{nota_feita}</span></span>
+                                <span>Conferido: <span class="process-card-doc-status">{conferido}</span></span>
+                            </div>
+                        """, unsafe_allow_html=True)
             st.markdown("---") # Separador entre os cards
     else:
         st.info("Nenhum processo de importação encontrado. Adicione um novo ou importe via arquivo.")
@@ -1360,6 +1390,8 @@ def _display_followup_list_page():
 
 # Nova função principal para rotear entre as páginas
 def show_page():
+    
+    
     """Função principal para rotear entre as páginas do Follow-up e Formulário de Processo."""
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "Follow-up Importação"

@@ -4,17 +4,21 @@ import pandas as pd
 from datetime import datetime
 import logging
 import urllib.parse # Para codificar URLs de e-mail
-from app_logic.utils import set_background_image, set_sidebar_background_image
 
-# Importar funções do módulo de utilitários de banco de dados
-from db_utils import (
-    get_declaracao_by_id,
-    update_declaracao, # Para salvar a armazenagem no DB
-    # As funções get_db_path e connect_db foram removidas do db_utils
-    # e substituídas por get_sqlite_db_path e connect_sqlite_db
-    get_sqlite_db_path, # Importa a função para obter o caminho do DB SQLite
-    connect_sqlite_db # Importa a função para conectar ao DB SQLite
-)
+# Importa as funções de utilidade para o fundo
+try:
+    from app_logic.utils import set_background_image, set_sidebar_background_image
+except ImportError:
+    logging.warning("Módulo 'app_logic.utils' não encontrado. Funções de imagem de fundo podem não funcionar.")
+    def set_background_image(image_path, opacity=None):
+        pass # Função mock se utils não for encontrado
+    def set_sidebar_background_image(image_path, opacity=None):
+        pass # Função mock se utils não for encontrado
+
+# Importa as funções reais do db_utils
+# ADIÇÃO: Importa get_declaracao_by_id e update_declaracao
+from db_utils import get_declaracao_by_id, update_declaracao_field, update_declaracao
+
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +195,7 @@ def load_di_data_for_portonave(declaracao_id):
     Carrega os dados da DI selecionada do banco de dados e inicializa
     os campos de entrada e dados calculados no session_state.
     """
+    # Usar a função importada get_declaracao_by_id
     di_data_raw = get_declaracao_by_id(declaracao_id)
     if di_data_raw:
         # Converte sqlite3.Row para dicionário para facilitar o acesso por chave
@@ -324,6 +329,7 @@ def save_armazenagem_to_db():
         updated_di_data['armazenagem'] = total_a_depositar_float
 
         # Chamar a função de atualização do db_utils
+        # Usar a função importada update_declaracao
         success = update_declaracao(declaracao_id, updated_di_data)
 
         if success:
@@ -360,23 +366,7 @@ def show_page():
     # Seção para carregar DI
     st.markdown("---")
     st.markdown("#### Carregar Dados da DI")
-    col_load_di, col_clear_di = st.columns([0.7, 0.3])
-    with col_load_di:
-        # Campo para inserir ID da DI
-        # Definir o valor inicial do number_input a partir do session_state, garantindo que seja numérico
-        current_di_input_value = st.session_state.get('portonave_di_input_id', 1) # Pega do session_state ou default 1
-        di_id_input = st.number_input("ID da DI para Carregar", min_value=1, format="%d", value=current_di_input_value, key="portonave_di_id_input")
-        st.session_state.portonave_di_input_id = di_id_input # Atualiza o session_state
-
-        if st.button("Carregar DI", key="load_di_button"):
-            if di_id_input:
-                load_di_data_for_portonave(di_id_input)
-            else:
-                st.warning("Por favor, insira um ID de DI válido.")
-    with col_clear_di:
-        st.markdown("##") # Espaçador para alinhar o botão
-        if st.button("Limpar Dados da DI", key="clear_di_button"):
-            clear_portonave_data()
+    
 
     # Exibe a referência do processo
     if st.session_state.portonave_di_data:
@@ -463,3 +453,4 @@ def show_page():
     if st.button("Voltar para Detalhes da DI", key="elo_voltar_di"):
         st.session_state.current_page = "Pagamentos" # Assumindo que você voltaria para a página de Pagamentos
         st.rerun()
+

@@ -352,6 +352,10 @@ def _handle_xml_upload():
         di_data_parsed, itens_data_parsed_raw = parse_xml_data_to_dict(xml_content)
         itens_data_parsed = itens_data_parsed_raw if itens_data_parsed_raw is not None else []
         
+        # --- DEBUG: Adicione esta linha para ver os itens parseados ---
+        st.info(f"Itens parseados do XML: {itens_data_parsed}")
+        # --- FIM DEBUG ---
+
         if di_data_parsed:
             numero_di_from_xml = di_data_parsed.get('numero_di')
             if not numero_di_from_xml:

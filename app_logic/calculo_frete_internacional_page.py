@@ -8,6 +8,12 @@ import streamlit.components.v1 as components # Importar components para HTML/JS
 # Importar funções de utilidade do módulo utils
 from app_logic.utils import set_background_image, get_dolar_cotacao
 
+# NOVO: Importar funções do db_utils para salvar e carregar frete internacional
+from app_logic.db_utils import (
+    inserir_ou_atualizar_frete_internacional,
+    get_frete_internacional_by_referencia
+)
+
 logger = logging.getLogger(__name__)
 
 # --- Função para formatar moeda ---
@@ -94,6 +100,101 @@ def _get_greeting():
     else:
         return "Boa noite"
 
+# NOVO: Função para salvar o frete internacional no banco de dados
+def _save_frete_internacional(frete_type, total_calculated_brl, iof_usd_val, dolar_cotacao_usado):
+    referencia_processo = st.session_state.get('referencia_pch', 'N/A').strip()
+    if not referencia_processo or referencia_processo == 'N/A':
+        st.error("Por favor, insira uma Referência de Processo válida antes de salvar.")
+        return False
+
+    frete_data = {
+        "referencia_processo": referencia_processo,
+        "tipo_frete": frete_type,
+        "data_calculo": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "dolar_cotacao_usado": dolar_cotacao_usado
+    }
+
+    if frete_type == "Aéreo":
+        frete_data.update({
+            "taxa_awb_aereo": st.session_state.taxa_awb_aereo,
+            "dta_aereo": st.session_state.dta_aereo,
+            "agency_fee_aereo": st.session_state.agency_fee_aereo,
+            "chd_aereo": st.session_state.chd_aereo,
+            "iof_aereo_usd": iof_usd_val,
+            "total_aereo_brl": total_calculated_brl,
+            # Campos marítimos zerados para consistência
+            "frete_bl_maritimo": 0.0,
+            "thc_maritimo": 0.0,
+            "taxas_destino_dolar_maritimo": 0.0,
+            "taxas_destino_real_maritimo": 0.0,
+            "agency_fee_maritimo": 0.0,
+            "iof_maritimo_usd": 0.0,
+            "total_maritimo_brl": 0.0
+        })
+    elif frete_type == "Marítimo":
+        frete_data.update({
+            "frete_bl_maritimo": st.session_state.frete_bl_maritimo,
+            "thc_maritimo": st.session_state.thc_maritimo,
+            "taxas_destino_dolar_maritimo": st.session_state.taxas_destino_dolar_maritimo,
+            "taxas_destino_real_maritimo": st.session_state.taxas_destino_real_maritimo,
+            "agency_fee_maritimo": st.session_state.agency_fee_maritimo,
+            "iof_maritimo_usd": iof_usd_val,
+            "total_maritimo_brl": total_calculated_brl,
+            # Campos aéreos zerados para consistência
+            "taxa_awb_aereo": 0.0,
+            "dta_aereo": 0.0,
+            "agency_fee_aereo": 0.0,
+            "chd_aereo": 0.0,
+            "iof_aereo_usd": 0.0,
+            "total_aereo_brl": 0.0
+        })
+    
+    if inserir_ou_atualizar_frete_internacional(frete_data):
+        st.success(f"Cálculo de frete {frete_type} para a referência '{referencia_processo}' salvo/atualizado com sucesso!")
+        return True
+    else:
+        st.error(f"Falha ao salvar/atualizar cálculo de frete {frete_type} para a referência '{referencia_processo}'.")
+        return False
+
+# NOVO: Função para carregar o frete internacional do banco de dados
+def _load_frete_internacional():
+    referencia_processo = st.session_state.get('referencia_pch', '').strip()
+    if not referencia_processo:
+        # st.info("Insira uma Referência de Processo para carregar o frete existente.")
+        return
+
+    existing_frete_data = get_frete_internacional_by_referencia(referencia_processo)
+
+    if existing_frete_data:
+        st.info(f"Dados de frete para a referência '{referencia_processo}' carregados. Tipo: {existing_frete_data['tipo_frete']}.")
+        
+        # Atualiza o tipo de frete selecionado na UI
+        st.session_state.frete_type_select = existing_frete_data.get('tipo_frete', 'Aéreo')
+
+        # Atualiza o dólar de venda (abertura) editável
+        st.session_state.dolar_venda_abertura_editable = existing_frete_data.get('dolar_cotacao_usado', 0.0)
+
+        if existing_frete_data.get('tipo_frete') == "Aéreo":
+            st.session_state.taxa_awb_aereo = existing_frete_data.get('taxa_awb_aereo', 0.0)
+            st.session_state.dta_aereo = existing_frete_data.get('dta_aereo', 0.0)
+            st.session_state.agency_fee_aereo = existing_frete_data.get('agency_fee_aereo', 0.0)
+            st.session_state.chd_aereo = existing_frete_data.get('chd_aereo', 0.0)
+            st.session_state.total_comparacao_aereo = existing_frete_data.get('total_aereo_brl', 0.0) # Assume que este é o total salvo para comparação
+            _clear_maritimo_fields() # Limpa os campos do outro tipo para consistência
+        elif existing_frete_data.get('tipo_frete') == "Marítimo":
+            st.session_state.frete_bl_maritimo = existing_frete_data.get('frete_bl_maritimo', 0.0)
+            st.session_state.thc_maritimo = existing_frete_data.get('thc_maritimo', 0.0)
+            st.session_state.taxas_destino_dolar_maritimo = existing_frete_data.get('taxas_destino_dolar_maritimo', 0.0)
+            st.session_state.taxas_destino_real_maritimo = existing_frete_data.get('taxas_destino_real_maritimo', 0.0)
+            st.session_state.agency_fee_maritimo = existing_frete_data.get('agency_fee_maritimo', 0.0)
+            _clear_aereo_fields() # Limpa os campos do outro tipo para consistência
+        
+        # Força um re-render para que os campos sejam preenchidos
+        st.rerun()
+    # else:
+        # st.info(f"Nenhum cálculo de frete encontrado para a referência '{referencia_processo}'.")
+
+
 def show_calculo_frete_internacional_page():
     """
     Exibe a página de cálculo de Frete Internacional, com opções para Aéreo e Marítimo.
@@ -143,19 +244,21 @@ def show_calculo_frete_internacional_page():
     # Pré-preencher o campo de referência
     if 'referencia_pch' not in st.session_state:
         st.session_state.referencia_pch = "PCH-"
-    col1, col2 = st.columns([1, 3])  # Proporção 1:2
-    with col1:
-        st.text_input(
+    
+    # NOVO: Adicionado um callback para carregar os dados do frete quando a referência for alterada
+    referencia_input = st.text_input(
         "Referência (Ex: PCH-*****)", 
         key="referencia_pch", 
         value=st.session_state.referencia_pch,
-        
+        on_change=_load_frete_internacional # Chama a função de carregamento ao mudar
     )
+    # LINHA REMOVIDA: st.session_state.referencia_pch = referencia_input
 
 
     # Select box for freight type
     col1, col2 = st.columns([1, 3])  # Proporção 1:2
     with col1:
+        # O valor inicial do selectbox deve vir do session_state, que é atualizado pela função de carregamento
         frete_type = st.selectbox(
         "Selecione o Tipo de Frete",
         ("Aéreo", "Marítimo"),
@@ -204,7 +307,7 @@ def show_calculo_frete_internacional_page():
                 value=st.session_state.chd_aereo,
             )
             # O cálculo do IOF deve usar o dólar editável
-            iof_aereo_calculated = st.session_state.taxa_awb_aereo * 0.035
+            iof_aereo_calculated_usd = st.session_state.taxa_awb_aereo * 0.035
             
 
             st.markdown("###### Outros Custos (R$)")
@@ -233,9 +336,9 @@ def show_calculo_frete_internacional_page():
             taxa_awb_brl = st.session_state.taxa_awb_aereo * dolar_abertura_3_percent_calculated
             dta_brl = st.session_state.dta_aereo * dolar_abertura_3_percent_calculated
             chd_brl = st.session_state.chd_aereo * dolar_abertura_3_percent_calculated
-            iof_brl = iof_aereo_calculated * dolar_abertura_3_percent_calculated
+            iof_aereo_brl = iof_aereo_calculated_usd * dolar_abertura_3_percent_calculated
 
-            total_aereo_brl_calculated = (taxa_awb_brl + dta_brl + iof_brl + chd_brl) + st.session_state.agency_fee_aereo
+            total_aereo_brl_calculated = (taxa_awb_brl + dta_brl + iof_aereo_brl + chd_brl) + st.session_state.agency_fee_aereo
             
             diferenca_aereo = total_aereo_brl_calculated - st.session_state.total_comparacao_aereo
 
@@ -244,7 +347,7 @@ def show_calculo_frete_internacional_page():
             st.write(f"Taxa AWB : {_format_currency(st.session_state.taxa_awb_aereo, prefix='$ ')}")
             st.write(f"DTA : {_format_currency(st.session_state.dta_aereo, prefix='$ ')}")
             st.write(f"CHD : {_format_currency(st.session_state.chd_aereo, prefix='$ ')}")
-            st.write(f"IOF : {_format_currency(iof_aereo_calculated, prefix='$ ')}")
+            st.write(f"IOF : {_format_currency(iof_aereo_calculated_usd, prefix='$ ')}")
             st.write(f"Agency Fee (R$) : {_format_currency(st.session_state.agency_fee_aereo, prefix='R$ ')}")
 
             st.markdown("---")
@@ -257,12 +360,23 @@ def show_calculo_frete_internacional_page():
                 # Usa a função de callback _clear_aereo_fields para resetar os valores
                 st.button("LIMPAR Aéreo", key="clear_aereo", on_click=_clear_aereo_fields)
 
+            # NOVO: Botão para Salvar Frete Aéreo
+            with col_buttons_aereo[1]:
+                if st.button("Salvar Frete Aéreo", key="save_aereo"):
+                    _save_frete_internacional(
+                        "Aéreo", 
+                        diferenca_aereo, 
+                        iof_aereo_calculated_usd, 
+                        st.session_state.dolar_venda_abertura_editable
+                    )
+            
             # Controlar a abertura do expander
             if 'email_expander_open' not in st.session_state:
                 st.session_state.email_expander_open = False
 
-            with col_buttons_aereo[1]:
-                if st.button("Enviar Frete Internacional Aéreo", key="send_aereo"):
+            col_send_aereo, _ = st.columns([0.5, 0.5])
+            with col_send_aereo:
+                if st.button("Gerar E-mail Frete Internacional Aéreo", key="send_aereo_email"):
                     st.session_state.email_expander_open = True
                     # st.rerun() # Removido st.rerun() desnecessário
 
@@ -402,12 +516,23 @@ Obrigado(a),
             # Usa a função de callback _clear_maritimo_fields para resetar os valores
             st.button("LIMPAR Marítimo", key="clear_maritimo", on_click=_clear_maritimo_fields)
         
+        # NOVO: Botão para Salvar Frete Marítimo
+        with col_buttons_maritimo[1]:
+            if st.button("Salvar Frete Marítimo", key="save_maritimo"):
+                _save_frete_internacional(
+                    "Marítimo", 
+                    total_maritimo_brl_calculated, 
+                    iof_maritimo_calculated_usd,
+                    st.session_state.dolar_venda_abertura_editable
+                )
+
         # Controlar a abertura do expander
         if 'email_expander_open_maritimo' not in st.session_state:
             st.session_state.email_expander_open_maritimo = False
 
-        with col_buttons_maritimo[1]:
-            if st.button("Enviar Frete Internacional Marítimo", key="send_maritimo"):
+        col_send_maritimo, _ = st.columns([0.5, 0.5])
+        with col_send_maritimo:
+            if st.button("Gerar E-mail Frete Internacional Marítimo", key="send_maritimo_email"):
                 st.session_state.email_expander_open_maritimo = True
                 # st.rerun() # Removido st.rerun() desnecessário
         
