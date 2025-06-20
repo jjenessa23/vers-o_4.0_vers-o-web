@@ -9,13 +9,19 @@ import base64 # Importar base64 para codificar imagens
 import re # Importar re para processar NCM
 
 # Importar funções do novo módulo de utilitários de banco de dados
-# Assumimos que db_utils.py existe e está no PYTHONPATH ou no mesmo diretório/subdiretório 'app_logic'
-# Como db_utils está no diretório pai, ajustamos o import
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import db_utils
-
+# Usar importação relativa para garantir que o db_utils correto seja carregado.
+try:
+    from .db_utils import (
+        selecionar_todos_produtos,
+        inserir_ou_atualizar_produto,
+        deletar_produto,
+        selecionar_produtos_por_ids,
+        selecionar_produto_por_id,
+        
+    )
+except ImportError as e:
+    st.error(f"Erro ao importar funções do db_utils: {e}. Verifique se db_utils.py está acessível e possui as funções esperadas.")
+    st.stop() # Parar a execução se o DB não puder ser acessado
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +89,10 @@ def load_produtos():
     logger.debug("load_produtos: Iniciando carregamento de produtos.")
     try:
         # Chama a função de alto nível do db_utils
-        produtos = db_utils.selecionar_todos_produtos()
-        logger.debug(f"load_produtos: db_utils.selecionar_todos_produtos() retornou {len(produtos)} produtos. Conteúdo: {produtos[:5]}...") # Log detalhado
+        produtos = selecionar_todos_produtos() # Usando a função importada diretamente
+        logger.debug(f"load_produtos: selecionar_todos_produtos() retornou {len(produtos)} produtos. Conteúdo: {produtos[:5]}...") # Log detalhado
 
-        # db_utils.selecionar_todos_produtos já retorna uma lista de dicionários ou lista vazia.
+        # selecionar_todos_produtos já retorna uma lista de dicionários ou lista vazia.
         st.session_state.produtos_data = produtos
         st.session_state.produtos_data_df = pd.DataFrame(st.session_state.produtos_data)
         
@@ -108,7 +114,6 @@ def load_produtos():
 
 def add_or_update_produto(produto_id, nome, desc, ncm):
     """Adiciona ou atualiza um produto no DB."""
-    # NÃO usar db_utils.get_db_path aqui.
     
     # Validação básica
     if not produto_id or not nome or not desc or not ncm:
@@ -122,23 +127,22 @@ def add_or_update_produto(produto_id, nome, desc, ncm):
     
     produto_tuple = (str(produto_id), nome, desc, ncm_cleaned)
     
-    # Chama a função de alto nível do db_utils sem passar db_path
-    if db_utils.inserir_ou_atualizar_produto(produto_tuple):
+    # Chama a função de alto nivel do db_utils
+    if inserir_ou_atualizar_produto(produto_tuple): # Usando a função importada diretamente
         st.success(f"Produto '{nome}' (ID: {produto_id}) salvo com sucesso!")
         load_produtos() # Recarrega a tabela
         return True
     else:
-        # A função db_utils.inserir_ou_atualizar_produto já loga o erro,
+        # A função inserir_ou_atualizar_produto já loga o erro,
         # mas podemos dar um feedback genérico ao usuário aqui.
         st.error(f"Falha ao salvar produto '{nome}' (ID: {produto_id}). Verifique os logs para detalhes.")
         return False
 
 def delete_produto_from_db(produto_id):
     """Deleta um produto do DB."""
-    # NÃO usar db_utils.get_db_path aqui.
     
-    # Chama a função de alto nível do db_utils sem passar db_path
-    if db_utils.deletar_produto(produto_id):
+    # Chama a função de alto nível do db_utils
+    if deletar_produto(produto_id): # Usando a função importada diretamente
         st.success(f"Produto ID '{produto_id}' excluído com sucesso!")
         # Remove da lista de seleção se estiver lá
         if produto_id in st.session_state.get('produtos_selecionados_ids_list', []):
@@ -152,31 +156,34 @@ def delete_produto_from_db(produto_id):
 
 def export_selected_products():
     """Exporta produtos selecionados para Excel/TXT, incluindo IDs não encontrados."""
-    # Não precisa de db_path aqui, pois os dados já estão em st.session_state.produtos_data
-    # e db_utils.selecionar_produtos_por_ids já buscará os detalhes se necessário.
     
     if not st.session_state.get('produtos_selecionados_ids_list'):
         st.warning("Nenhum produto selecionado para exportar.")
         return
 
-    # Garante que os dados do produtos_data_df estão atualizados
-    # all_products_dict_by_id = {p['id_key_erp']: p for p in st.session_state.produtos_data}
-    
-    # Chama db_utils.selecionar_produtos_por_ids para obter os detalhes dos produtos
-    # Isso garante que estamos pegando os dados mais recentes do DB se o cache for inválido.
-    products_from_db = db_utils.selecionar_produtos_por_ids(st.session_state.produtos_selecionados_ids_list)
-    
+    # AQUI: Não usaremos selecionar_produtos_por_ids diretamente para buscar do DB
+    # pois já temos todos os produtos em st.session_state.produtos_data_df
+    # Filtramos os produtos selecionados diretamente do DataFrame em memória.
+    all_products_df = st.session_state.produtos_data_df
+    if all_products_df.empty:
+        st.error("Dados de produtos não carregados. Por favor, recarregue a página.")
+        return
+
     products_to_export = []
-    found_ids_set = {p['id_key_erp'] for p in products_from_db}
+    
+    # Filtra as linhas do DataFrame que correspondem aos IDs selecionados
+    # Usar .isin() para filtrar múltiplos IDs de forma eficiente
+    selected_ids_set = set(st.session_state.produtos_selecionados_ids_list)
+    df_filtered_for_export = all_products_df[all_products_df['id_key_erp'].isin(selected_ids_set)]
+
+    found_ids_set = set(df_filtered_for_export['id_key_erp'].tolist())
     not_found_count = 0
 
-    # Construir a lista para exportação, incluindo "Não encontrado" para IDs ausentes
+    # Percorre a lista original de IDs selecionados para manter a ordem
     for prod_id in st.session_state.produtos_selecionados_ids_list:
         if prod_id in found_ids_set:
-            # Encontra o produto correspondente na lista retornada do DB
-            product_detail = next((p for p in products_from_db if p['id_key_erp'] == prod_id), None)
-            if product_detail:
-                products_to_export.append(product_detail)
+            product_detail = df_filtered_for_export[df_filtered_for_export['id_key_erp'] == prod_id].iloc[0].to_dict()
+            products_to_export.append(product_detail)
         else:
             # Create a "Não encontrado" entry for missing IDs
             not_found_item = {col_info['col_id']: "" for col_info in _COLS_MAP_PRODUTOS.values()}
@@ -220,9 +227,41 @@ def export_selected_products():
     st.success(success_message)
 
 
+def generate_excel_template():
+    """Gera um template Excel para importação de produtos com os cabeçalhos esperados."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Template_Produtos"
+
+    # Cabeçalhos baseados no _COLS_MAP_PRODUTOS
+    headers = [_COLS_MAP_PRODUTOS['id']['text'], 
+               _COLS_MAP_PRODUTOS['nome']['text'], 
+               _COLS_MAP_PRODUTOS['desc']['text'], 
+               _COLS_MAP_PRODUTOS['ncm']['text']]
+    
+    ws.append(headers)
+
+    # Estilos básicos para o cabeçalho
+    header_font = openpyxl.styles.Font(bold=True)
+    for col_idx, header_text in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header_text)
+        cell.font = header_font
+        cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+        thin_border = openpyxl.styles.Border(left=openpyxl.styles.Side(style='thin'), 
+                                             right=openpyxl.styles.Side(style='thin'), 
+                                             top=openpyxl.styles.Side(style='thin'), 
+                                             bottom=openpyxl.styles.Side(style='thin'))
+        cell.border = thin_border
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = len(header_text) + 5 # Ajusta largura da coluna
+
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    return excel_buffer, "Template_Produtos.xlsx"
+
+
 def import_excel_products(uploaded_file):
     """Importa produtos de arquivo Excel."""
-    # NÃO usar db_utils.get_db_path aqui.
     
     try:
         df = pd.read_excel(uploaded_file, dtype=str)
@@ -231,7 +270,7 @@ def import_excel_products(uploaded_file):
         st.error(f"Erro ao ler arquivo Excel: {e}")
         logger.exception("Erro leitura Excel de produtos.")
         return
-
+    
     # Pré-processamento: Remover espaços dos nomes das colunas para facilitar a busca.
     df.columns = df.columns.str.replace(' ', '', regex=False)
 
@@ -286,8 +325,15 @@ def import_excel_products(uploaded_file):
                 error_count += 1
                 continue
             
-            # Chama a função de alto nível do db_utils sem passar db_path
-            if db_utils.inserir_ou_atualizar_produto(produto_tuple):
+            # ATENÇÃO: Logs de depuração adicionados aqui
+            logger.debug(f"Processando linha {index+2}: ID_ERP='{id_p}', Nome='{produto_tuple[1]}'")
+            
+            # Chama a função de alto nível do db_utils
+            success = inserir_ou_atualizar_produto(produto_tuple) # Usando a função importada diretamente
+            
+            logger.debug(f"Resultado para ID '{id_p}': {'SUCESSO' if success else 'FALHA'}")
+
+            if success:
                 imported_count += 1
             else:
                 error_count += 1 # inserir_ou_atualizar_produto already logs/shows error
@@ -346,6 +392,7 @@ def show_page():
 
 
     # Garante que os dados sejam carregados na primeira execução ou se o estado mudar
+    # A COLEÇÃO COMPLETA DE PRODUTOS É CARREGADA AQUI:
     if not st.session_state.produtos_data:
         load_produtos() # Chamar load_produtos para carregar os dados
 
@@ -353,15 +400,14 @@ def show_page():
 
     # --- Seção de Pesquisa ---
     st.markdown("#### Pesquisar Produtos")
-    with st.expander("Filtros de Pesquisa"):
-        search_col1, search_col2, search_col3, search_col4 = st.columns(4)
+    
+    with st.popover("Mais Opções"):
+        search_col1, search_col2  = st.columns(2)
         with search_col1:
             st.session_state.descricoes_search_terms['id_key_erp'] = st.text_input("ID/Key ERP", value=st.session_state.descricoes_search_terms.get('id_key_erp', ''), key="search_id_key_erp")
-        with search_col2:
             st.session_state.descricoes_search_terms['nome_part'] = st.text_input("Nome/Part", value=st.session_state.descricoes_search_terms.get('nome_part', ''), key="search_nome_part")
-        with search_col3:
+        with search_col2:
             st.session_state.descricoes_search_terms['descricao'] = st.text_input("Descrição", value=st.session_state.descricoes_search_terms.get('descricao', ''), key="search_descricao")
-        with search_col4:
             st.session_state.descricoes_search_terms['ncm'] = st.text_input("NCM", value=st.session_state.descricoes_search_terms.get('ncm', ''), key="search_ncm")
 
         search_button_col, clear_search_button_col = st.columns(2)
@@ -399,8 +445,8 @@ def show_page():
             initial_data = {}
             is_editing = False
             if st.session_state.selected_produto_id:
-                # Chama db_utils.selecionar_produto_por_id sem db_path
-                produto_data_dict = db_utils.selecionar_produto_por_id(st.session_state.selected_produto_id)
+                # Chama selecionar_produto_por_id
+                produto_data_dict = selecionar_produto_por_id(st.session_state.selected_produto_id)
                 if produto_data_dict:
                     initial_data = produto_data_dict # Já é um dicionário
                     is_editing = True
@@ -437,8 +483,8 @@ def show_page():
                 if is_editing:
                     if col_submit_delete.form_submit_button("Excluir Produto"):
                         if st.session_state.get(f'confirm_delete_product_{produto_id_input}', False):
-                            # Chama delete_produto_from_db sem db_path
-                            if delete_produto_from_db(produto_id_input):
+                            # Chama deletar_produto
+                            if deletar_produto(produto_id_input):
                                 st.session_state.selected_produto_id = None
                                 st.session_state.open_form_button_clicked = False
                                 del st.session_state[f'confirm_delete_product_{produto_id_input}']
@@ -498,7 +544,7 @@ def show_page():
                     st.warning(f"Deseja realmente excluir {len(st.session_state.produtos_selecionados_ids_list)} produtos selecionados?")
                     if st.button("Sim, Excluir Todos Confirmado", key="confirm_delete_all_button"):
                         for prod_id in st.session_state.produtos_selecionados_ids_list:
-                            delete_produto_from_db(prod_id) # Chama delete_produto_from_db sem db_path
+                            deletar_produto(prod_id) # Usando a função importada
                         st.session_state.produtos_selecionados_ids_list = []
                         st.session_state.produtos_table_editor_key_counter += 1
                         st.rerun()
@@ -509,7 +555,7 @@ def show_page():
                     prod_name_to_delete = next((p['nome_part'] for p in st.session_state.produtos_data if p['id_key_erp'] == prod_id_to_delete), "Produto Desconhecido")
                     st.warning(f"Deseja realmente excluir o produto '{prod_name_to_delete}' (ID: {prod_id_to_delete})?")
                     if st.button("Sim, Excluir Confirmado", key=f"confirm_delete_single_button_{prod_id_to_delete}"):
-                        delete_produto_from_db(prod_id_to_delete) # Chama delete_produto_from_db sem db_path
+                        deletar_produto(prod_id_to_delete) # Usando a função importada
                         st.session_state.produtos_selecionados_ids_list = []
                         st.session_state.produtos_table_editor_key_counter += 1
                         st.rerun()
@@ -521,7 +567,6 @@ def show_page():
         st.info("Nenhum produto cadastrado. Adicione um novo ou importe via Excel.")
 
     
-
     # --- Expander de Pesquisa Múltipla (agora acima de Produtos Selecionados) ---
     with st.expander("Pesquisar Múltiplos Produtos por ID", expanded=st.session_state.show_multi_search_expander):
         st.write("Insira os IDs dos produtos (um por linha):")
@@ -533,22 +578,32 @@ def show_page():
 
         with col_search_expander:
             if st.button("Buscar Produtos", key="search_multi_ids_button_expander"):
-                search_ids = [id.strip() for id in multi_id_input.split('\n') if id.strip()]
+                # Garante que os IDs são strings e remove espaços em branco
+                search_ids = [str(id).strip() for id in multi_id_input.split('\n') if str(id).strip()]
+                
                 if search_ids:
-                    # Chama db_utils.selecionar_produtos_por_ids sem db_path
-                    results_from_db = db_utils.selecionar_produtos_por_ids(search_ids)
+                    # ATENÇÃO: AQUI A MUDANÇA PRINCIPAL!
+                    # Filtra diretamente do DataFrame em memória (que já tem todos os produtos do Firebase)
+                    df_all_products = st.session_state.produtos_data_df # Acessa o DataFrame completo
                     
+                    if not df_all_products.empty:
+                        # Filtra o DataFrame pelos IDs inseridos
+                        # Usamos .astype(str) para garantir que a comparação seja entre strings
+                        df_found = df_all_products[df_all_products['id_key_erp'].isin(search_ids)].copy()
+                    else:
+                        df_found = pd.DataFrame() # DataFrame vazio se não há produtos carregados
+
                     results_for_display = []
                     found_count = 0
-                    found_ids_set = {p['id_key_erp'] for p in results_from_db}
+                    found_ids_in_df = set(df_found['id_key_erp'].tolist()) if not df_found.empty else set()
 
                     # Reconstroi resultados para exibição, incluindo "Não encontrado"
                     for s_id in search_ids:
-                        if s_id in found_ids_set:
-                            product_detail = next((p for p in results_from_db if p['id_key_erp'] == s_id), None)
-                            if product_detail:
-                                results_for_display.append(product_detail)
-                                found_count += 1
+                        if s_id in found_ids_in_df:
+                            # Converte a série para dicionário
+                            product_detail = df_found[df_found['id_key_erp'] == s_id].iloc[0].to_dict()
+                            results_for_display.append(product_detail)
+                            found_count += 1
                         else:
                             # Add "Não encontrado" for missing IDs
                             not_found_item = {col_info['col_id']: "" for col_info in _COLS_MAP_PRODUTOS.values()}
@@ -556,10 +611,11 @@ def show_page():
                             not_found_item['nome_part'] = "Não encontrado" # Marcar como não encontrado
                             results_for_display.append(not_found_item)
 
-                    df_found = pd.DataFrame(results_for_display)
-                    if not df_found.empty:
-                        df_found['ncm'] = df_found['ncm'].apply(_format_ncm)
-                    st.session_state.multi_search_results_df = df_found
+                    df_results_display = pd.DataFrame(results_for_display)
+                    if not df_results_display.empty:
+                        df_results_display['ncm'] = df_results_display['ncm'].apply(_format_ncm)
+                    
+                    st.session_state.multi_search_results_df = df_results_display
                     st.success(f"Busca concluída. {found_count} produtos encontrados.")
                 else:
                     st.session_state.multi_search_results_df = pd.DataFrame()
@@ -585,9 +641,10 @@ def show_page():
                     added_count = 0
                     for _, row in st.session_state.multi_search_results_df.iterrows():
                         prod_id = row['id_key_erp']
-                        # Adiciona todos os IDs, incluindo os "Não encontrado", para manter a ordem.
-                        st.session_state.produtos_selecionados_ids_list.append(prod_id) # Permite duplicatas
-                        added_count += 1
+                        # Adiciona apenas IDs que foram encontrados (não "Não encontrado")
+                        if row['nome_part'] != "Não encontrado": 
+                            st.session_state.produtos_selecionados_ids_list.append(prod_id) # Permite duplicatas
+                            added_count += 1
                     st.success(f"{added_count} produtos adicionados à lista de selecionados.")
                     st.session_state.show_multi_search_expander = False # Fecha o expander
                     st.rerun()
@@ -607,9 +664,20 @@ def show_page():
 
     if st.session_state.produtos_selecionados_ids_list:
         selected_products_details = []
-        # Chama db_utils.selecionar_produtos_por_ids para obter os detalhes mais recentes
-        products_from_db_for_selection_list = db_utils.selecionar_produtos_por_ids(st.session_state.produtos_selecionados_ids_list)
-        products_from_db_for_selection_dict = {p['id_key_erp']: p for p in products_from_db_for_selection_list}
+        # ATENÇÃO: AQUI TAMBÉM MUDANÇA!
+        # Filtra os detalhes dos produtos selecionados diretamente do DataFrame completo em memória
+        all_products_df = st.session_state.produtos_data_df
+        if not all_products_df.empty:
+            selected_ids_set_for_list = set(st.session_state.produtos_selecionados_ids_list)
+            # Cria um DataFrame temporário com apenas os produtos que correspondem aos IDs selecionados.
+            # Garante que todos os IDs estejam como string para a comparação.
+            df_selected_from_all = all_products_df[all_products_df['id_key_erp'].isin(selected_ids_set_for_list)].copy()
+        else:
+            df_selected_from_all = pd.DataFrame()
+
+        # Reconstroi a lista de detalhes mantendo a ordem original dos IDs digitados/selecionados
+        # e adicionando "Não encontrado" para IDs ausentes ou inválidos.
+        products_from_db_for_selection_dict = {p_id: row.to_dict() for p_id, row in df_selected_from_all.set_index('id_key_erp').iterrows()}
 
         for prod_id in st.session_state.produtos_selecionados_ids_list:
             found_product = products_from_db_for_selection_dict.get(prod_id)
@@ -667,6 +735,7 @@ def show_page():
                             # precisaria de uma coluna de índice visual no df_selected_products e usar isso para a remoção.
                             ids_to_remove_from_list_set.discard(item_id_in_list) # Remove do set para não pular outras ocorrências do mesmo ID.
                                                                                 # O `discard` é seguro se a chave não existir.
+                                                                                # Não há necessidade de modificar ids_to_remove_from_list_set, pois não será reusado.
 
                     st.session_state.produtos_selecionados_ids_list = new_selected_ids_list
                     st.session_state.selected_products_list_selection = {'rows': []} # Limpa a seleção visual
@@ -693,9 +762,23 @@ def show_page():
 
     # --- Seção para Importar Excel de Produtos (movida para o final) ---
     st.markdown("#### Importar Produtos via Excel")
-    uploaded_file = st.file_uploader("Selecione um arquivo Excel para importar produtos", type=["xlsx"], key="upload_products_excel_bottom")
-    if uploaded_file is not None:
-        import_excel_products(uploaded_file) # Chama import_excel_products sem db_path
+    col_upload_excel, col_download_template = st.columns([3, 1]) # Duas colunas para upload e download
+
+    with col_upload_excel:
+        uploaded_file = st.file_uploader("Selecione um arquivo Excel para importar produtos", type=["xlsx"], key="upload_products_excel_bottom")
+        if uploaded_file is not None:
+            import_excel_products(uploaded_file) # Chama import_excel_products sem db_path
+
+    with col_download_template:
+        st.markdown("<br>", unsafe_allow_html=True) # Adiciona um espaço para alinhar com o uploader
+        excel_template_buffer, excel_template_filename = generate_excel_template()
+        if excel_template_buffer:
+            st.download_button(
+                label="Baixar Template Excel",
+                data=excel_template_buffer,
+                file_name=excel_template_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel_template_button"
+            )
 
     st.markdown("---")
-

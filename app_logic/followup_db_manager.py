@@ -231,7 +231,6 @@ def inserir_item_processo(
         logger.error(f"inserir_item_processo: Erro ao inserir item para o processo ID '{processo_id}' no Firestore: {e}")
         return False
 
-
 @st.cache_data(ttl=3600)
 def obter_itens_processo(processo_id: str) -> List[Dict[str, Any]]: # processo_id é string (Firestore Document ID)
     """Obtém todos os itens associados a um processo específico do Firestore."""
@@ -324,9 +323,12 @@ def obter_processos_filtrados(status_filtro="Todos", termos_pesquisa=None):
             query_firestore = query_firestore.where("Status_Arquivado", "==", "Arquivado")
         elif status_filtro != "Todos":
             query_firestore = query_firestore.where("Status_Geral", "==", status_filtro)
-            query_firestore = query_firestore.where("Status_Arquivado", "in", [None, "Não Arquivado"]) # Exclui explicitamente arquivados
-        else: # "Todos", exclui arquivados por padrão
+            # Exclui explicitamente arquivados, a menos que "Arquivados" seja o filtro principal.
+            # Isso é para o caso de um status normal ser selecionado, e não se quer ver arquivados.
             query_firestore = query_firestore.where("Status_Arquivado", "in", [None, "Não Arquivado"])
+        # REMOVIDO: O else para "Todos" que excluía arquivados. Agora, "Todos" significa SEM filtro de Status_Arquivado.
+        # Se status_filtro é "Todos", não adicionamos nenhum filtro de "Status_Arquivado" aqui,
+        # permitindo que todos os processos (arquivados e não arquivados) sejam retornados pelo Firestore.
 
         # Aplica filtros de data no Firestore
         if termos_pesquisa:

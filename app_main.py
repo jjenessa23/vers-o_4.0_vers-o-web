@@ -92,7 +92,8 @@ if not st.session_state.firebase_ready:
                                                    "Análise de Faturas/PL (PDF)", "Análise de Documentos",
                                                    "Pagamentos Container", "Cálculo de Tributos TTCE",
                                                    "Gerenciamento de Usuários", "Gerenciar Notificações",
-                                                   "Formulário Processo", "Clonagem de Processo", "Produtos"]
+                                                   "Formulário Processo", "Clonagem de Processo", "Produtos",
+                                                   "Rateios de Carga"] # ADICIONADO: Nova página
                             user_data = {"username": admin_username, "password_hash": admin_password_hash, "is_admin": True, "allowed_screens": all_screens_default}
                             users_ref.document(admin_username).set(user_data)
                             logger.info("APP_MAIN_DEBUG: Usuário admin padrão 'admin' criado no Firestore.")
@@ -115,8 +116,6 @@ if not st.session_state.firebase_ready:
         logger.exception(f"APP_MAIN_DEBUG: ERRO INESPERADO ao iniciar o bloco de inicialização do Firebase: {e}")
         st.error(f"Erro geral na depuração inicial do Firebase: {e}")
         st.session_state.firebase_ready = False
-
-
 
 
 # Importar funções de utilidade do novo módulo
@@ -348,13 +347,10 @@ try:
 except ImportError:
     st.error("ERRO CRÍTICO: O módulo 'db_utils' não foi encontrado. Por favor, certifique-se de que 'db_utils.py' está no diretório 'app_logic' e que todas as dependências estão instaladas.")
     st.stop() # Interrompe a execução do aplicativo se o db_utils não puder ser importado
-
-# Importar followup_db_manager diretamente
+#Importar followup_db_manager diretamente
 from app_logic import followup_db_manager
-
 # Importar as páginas da pasta 'app_logic'
 # sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app_logic')) # Já adicionado acima
-
 from app_logic import custo_item_page
 from app_logic import analise_xml_di_page
 from app_logic import detalhes_di_calculos_page
@@ -366,7 +362,7 @@ from app_logic import dashboard_page
 from app_logic import notification_page
 # NOVO: Importar a nova página de Frete Internacional
 from app_logic import calculo_frete_internacional_page
-# IMPORTANTE: Importar a nova página de análise de PDF
+# IMPORTANTE: Importar a nova página de Análise de PDF
 from app_logic import pdf_analyzer_page
 # NOVO: Importar a nova página de listagem NCM
 from app_logic import ncm_list_page
@@ -383,6 +379,8 @@ from app_logic import calculo_futura_page
 from app_logic import calculo_paclog_elo_page
 from app_logic import calculo_fechamento_page
 from app_logic import calculo_fn_transportes_page
+# NOVO: Importar a nova tela de rateios de carga
+from app_logic import rateios_carga_page
 
 
 # Configuração de logging (simplificada para Streamlit)
@@ -468,9 +466,10 @@ PAGES = {
     "Clonagem de Processo": clonagem_processo_page.show_clonagem_processo_page, # NOVO: Página dedicada para clonagem
     "Produtos": produtos_page.show_produtos_page, # Nova página para produtos
     "Consulta de Processo": process_query_page.show_process_query_page,
+    "Rateios de Carga": rateios_carga_page.show_rateios_carga_page, # ADICIONADO: Nova página de Rateios de Carga
 }
 
-# --- Tela de Login ---
+# --- Barra Lateral de Navegação (Menu) ---
 if not st.session_state.authenticated:
     # Definir fundo para a tela de login
     login_background_image_path = os.path.join(os.path.dirname(__file__), 'assets', 'fundo_login.png')
@@ -510,11 +509,11 @@ if not st.session_state.authenticated:
         st.markdown("---")
         
         
-        st.markdown("**Versão da Aplicação:** 2.2.1")
+        st.markdown("**Versão da Aplicação:** 2.0.1")
         st.info("Informe as credenciais de login ao sistema para continuar.")
              
              
-
+# --- Conteúdo Principal (Baseado na Página Selecionada) ---
 else:
     # --- Barra Lateral de Navegação (Menu) ---
     logo_sidebar_path = os.path.join(os.path.dirname(__file__), 'assets', 'Logo.png')
@@ -597,6 +596,9 @@ else:
     # IMPORTANTE: Botão para a nova página de Análise de Faturas/PL (PDF)
     if st.sidebar.button("Análise de Faturas/PL (PDF)", key="menu_pdf_analyzer", use_container_width=True):
         navigate_to("Análise de Faturas/PL (PDF)")
+    # NOVO: Botão para Rateios de Carga
+    if st.sidebar.button("Rateios de Carga", key="menu_rateios_carga", use_container_width=True):
+        navigate_to("Rateios de Carga")
 
     # Menu "Telas em desenvolvimento"
     st.sidebar.subheader("Telas em desenvolvimento")
@@ -632,7 +634,6 @@ else:
 
     # --- Conteúdo Principal (Baseado na Página Selecionada) ---
     
-
     with st.container():
         if st.session_state.current_page == "Home":
             background_image_path = os.path.join(os.path.dirname(__file__), 'assets', 'logo_navio_atracado.png')
@@ -732,4 +733,3 @@ else:
                 PAGES[st.session_state.current_page]()
         else:
             st.info(f"Página '{st.session_state.current_page}' em desenvolvimento ou não encontrada.")
-

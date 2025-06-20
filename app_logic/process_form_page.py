@@ -188,8 +188,10 @@ def calculate_item_taxes_and_values(item: Dict[str, Any], dolar_brl: float, tota
     """
     item_qty = float(item.get('Quantidade', 0))
     item_unit_value_usd = float(item.get('Valor Unitário', 0))
-    item_unit_weight_kg = float(item.get('Peso Unitário', 0))
     item_value_usd = item_qty * item_unit_value_usd
+    
+    # Certifique-se de que 'Peso Unitário' é um float e lida com None/NaN
+    item_unit_weight_kg = float(item.get('Peso Unitário', 0.0) if item.get('Peso Unitário') is not None else 0.0)
     item_weight_kg = item_qty * item_unit_weight_kg
 
     # Para evitar divisão por zero, use max(1, ...)
@@ -299,7 +301,7 @@ def _save_process_action(process_id_from_form_load: Optional[Any], edited_data: 
 
     # Se for processo existente, carregar dados originais para histórico
     if not is_new_process_flag and process_id_from_form_load is not None:
-        original_process_raw = db_manager.obter_processo_por_id(process_id_from_form_load)
+        original_process_raw = db_manager.obter_processo_por_id(process_id_from_form_load if isinstance(process_id_from_form_load, int) else -1) if not db_manager._USE_FIRESTORE_AS_PRIMARY else db_manager.obter_processo_by_processo_novo(process_id_from_form_load)
         if original_process_raw:
             original_process_data_for_history = dict(original_process_raw)
 
@@ -572,6 +574,7 @@ def _import_items_from_excel(uploaded_file: Any, current_fornecedor_context: str
             "Cobertura": "Cobertura", "Codigo interno": "Código Interno",
             "Denominação": "Denominação do produto", "SKU": "SKU",
             "Quantidade": "Quantidade", "Preço": "Valor Unitário", "NCM": "NCM",
+            "Peso Unitário": "Peso Unitário" # Adicionado ao mapeamento para o template de itens
         }
         
         df_renamed = df.rename(columns=column_mapping_excel_to_internal, errors='ignore')
@@ -614,10 +617,10 @@ def _import_items_from_excel(uploaded_file: Any, current_fornecedor_context: str
 
 def _generate_items_excel_template():
     """Gera um arquivo Excel padrão para inserção de dados de itens de processo."""
-    template_columns = ["Cobertura", "Codigo interno", "Denominação", "SKU", "Quantidade", "Preço", "NCM"]
+    template_columns = ["Cobertura", "Codigo interno", "Denominação", "SKU", "Quantidade", "Preço", "NCM", "Peso Unitário"]
     example_row = {
         "Cobertura": "NÃO", "Codigo interno": "INT-001", "Denominação": "Processador Intel Core i7",
-        "SKU": "CPU-I7-12700K", "Quantidade": 5, "Preço": 350.00, "NCM": "84715010"
+        "SKU": "CPU-I7-12700K", "Quantidade": 5, "Preço": 350.00, "NCM": "84715010", "Peso Unitário": 0.5
     }
     df_template = pd.DataFrame([example_row], columns=template_columns) 
 
@@ -626,6 +629,154 @@ def _generate_items_excel_template():
         df_template.to_excel(writer, index=False, sheet_name='Template Itens')
     output.seek(0)
     return output
+
+# NOVO: Função para gerar o template de dados gerais do processo
+def _generate_process_excel_template():
+    """Gera um arquivo Excel padrão para inserção de dados gerais do processo."""
+    # Colunas na ordem e nomes solicitados pelo usuário
+    template_columns = [
+        "Process Reference", "Supplier", "Items", "PI / Invoice", "QTY", "Invoice Value USD",
+        "PAY?", "OC", "Purchase Date", "DI Estimated R$", "Freight USD Est.",
+        "Shipping Date", "AGENTE", "Status", "ETA Pichau", "Status para e-mail",
+        "AIR or SEA", "Containers QTY", "Origin", "Dest.", "Terms", "Buyer", "Modal"
+    ]
+    example_row = {
+        "Process Reference": "PR-2024-EXEMPLO",
+        "Supplier": "Acme Corp",
+        "Items": "Eletrônicos",
+        "PI / Invoice": "INV-2024-001",
+        "QTY": 100,
+        "Invoice Value USD": 15000.00,
+        "PAY?": "Sim",
+        "OC": "OC-XYZ-001",
+        "Purchase Date": "2024-01-10",
+        "DI Estimated R$": 5000.00,
+        "Freight USD Est.": 300.00,
+        "Shipping Date": "2024-02-15",
+        "AGENTE": "Agente ABC",
+        "Status": "Desembaraço Aduaneiro",
+        "ETA Pichau": "2024-03-05",
+        "Status para e-mail": "Em Andamento",
+        "AIR or SEA": "AIR", # Pode ser "AIR" ou "SEA"
+        "Containers QTY": 0, # Preencher se "AIR or SEA" for "SEA"
+        "Origin": "Shenzhen",
+        "Dest.": "São Paulo",
+        "Terms": "FOB",
+        "Buyer": "João Silva",
+        "Modal": "Aéreo" # Pode ser "Aéreo" ou "Maritimo"
+    }
+    df_template = pd.DataFrame([example_row], columns=template_columns) 
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_template.to_excel(writer, index=False, sheet_name='Template Dados Gerais')
+    output.seek(0)
+    return output
+
+# NOVO: Função para importar dados gerais do processo de um arquivo Excel/CSV
+def _import_process_from_excel(uploaded_file: Any, form_state_key: str) -> bool:
+    """
+    Importa dados gerais do processo de um arquivo Excel/CSV e os atualiza no st.session_state.
+    """
+    if uploaded_file is None:
+        return False
+
+    file_extension = os.path.splitext(uploaded_file.name)[1]
+    df = None
+
+    try:
+        if file_extension.lower() == '.csv':
+            try: df = pd.read_csv(uploaded_file, encoding='utf-8')
+            except UnicodeDecodeError: df = pd.read_csv(uploaded_file, encoding='latin-1')
+            except Exception: df = pd.read_csv(uploaded_file, sep=';')
+        elif file_extension.lower() in ('.xlsx', '.xls'):
+            df = pd.read_excel(uploaded_file)
+        else:
+            _display_message_box("Formato de arquivo não suportado. Por favor, use .csv, .xls ou .xlsx.", "error")
+            return False
+
+        if df.empty:
+            _display_message_box("O arquivo importado está vazio.", "warning")
+            return False
+
+        # Mapeamento de colunas da planilha para os campos do formulário
+        column_mapping_excel_to_form_fields = {
+            "Process Reference": "Processo_Novo",
+            "Supplier": "Fornecedor",
+            "Items": "Tipos_de_item",
+            "PI / Invoice": "N_Invoice",
+            "QTY": "Quantidade",
+            "Invoice Value USD": "Valor_USD",
+            "PAY?": "Pago",
+            "OC": "N_Ordem_Compra",
+            "Purchase Date": "Data_Compra",
+            "DI Estimated R$": "Estimativa_Impostos_Total",
+            "Freight USD Est.": "Estimativa_Frete_USD",
+            "Shipping Date": "Data_Embarque",
+            "AGENTE": "Agente_de_Carga_Novo",
+            "Status": "Observacao",
+            "ETA Pichau": "Previsao_Pichau",
+            "Status para e-mail": "Status_Geral",
+            "AIR or SEA": "Modal_Air_Sea_Temp", # Usar um campo temporário para desambiguar com 'Modal'
+            "Containers QTY": "Quantidade_Containers",
+            "Origin": "Origem",
+            "Dest.": "Destino",
+            "Terms": "INCOTERM",
+            "Buyer": "Comprador",
+            "Modal": "Modal", # Pode estar presente, mas "AIR or SEA" tem prioridade
+        }
+        
+        # Consideramos apenas a primeira linha para os dados do processo
+        process_data_from_file = df.iloc[0].to_dict()
+
+        updates_made = False
+        for col_excel, form_field_name in column_mapping_excel_to_form_fields.items():
+            if col_excel in process_data_from_file:
+                value = process_data_from_file[col_excel]
+                # Conversões de tipo e tratamento de valores
+                if pd.isna(value):
+                    value = None
+                elif form_field_name in ["Quantidade", "Quantidade_Containers"]:
+                    value = int(value) if value is not None else 0
+                elif form_field_name in ["Valor_USD", "Estimativa_Impostos_Total", "Estimativa_Frete_USD"]:
+                    value = float(value) if value is not None else 0.0
+                elif "Date" in col_excel and value is not None:
+                    try:
+                        if isinstance(value, (datetime, date)):
+                            value = value.strftime("%Y-%m-%d")
+                        elif isinstance(value, str):
+                            value = pd.to_datetime(value).strftime("%Y-%m-%d")
+                    except Exception:
+                        value = None # Fallback se a data não for reconhecida
+                
+                # Lógica especial para "AIR or SEA" vs "Modal"
+                if form_field_name == "Modal_Air_Sea_Temp":
+                    if value == "AIR":
+                        st.session_state[form_state_key]["Modal"] = "Aéreo"
+                    elif value == "SEA":
+                        st.session_state[form_state_key]["Modal"] = "Maritimo"
+                    # Se "Modal" também estiver na planilha, "AIR or SEA" tem prioridade
+                    if "Modal" in process_data_from_file and "AIR or SEA" not in process_data_from_file:
+                         st.session_state[form_state_key]["Modal"] = process_data_from_file["Modal"]
+
+                elif form_field_name != "Modal" or ("AIR or SEA" not in process_data_from_file):
+                    # Não sobrescreve "Modal" se "AIR or SEA" estiver presente e já tiver sido tratado
+                    st.session_state[form_state_key][form_field_name] = value
+                
+                updates_made = True
+
+        if updates_made:
+            _display_message_box(f"Dados gerais do processo importados com sucesso do arquivo '{uploaded_file.name}'! Salve o processo para persistir.", "success")
+            return True
+        else:
+            _display_message_box("Nenhum dado de processo reconhecível encontrado na planilha.", "warning")
+            return False
+
+    except Exception as e:
+        _display_message_box(f"Erro ao processar o arquivo Excel/CSV de dados gerais: {e}", "error")
+        logger.exception("Erro durante a importação de dados gerais do processo do arquivo.")
+        return False
+
 
 # Mover a definição de campos_config_tabs para fora da função show_process_form_page
 # para garantir que ela esteja sempre definida e acessível.
@@ -639,22 +790,27 @@ campos_config_tabs = {
             "Quantidade": {"label": "Quantidade:", "type": "number"},
             "N_Ordem_Compra": {"label": "Nº da Ordem de Compra:", "type": "text"},
             "Agente_de_Carga_Novo": {"label": "Agente de Carga:", "type": "text"},
+            "Origem": {"label": "Origem:", "type": "text"},
+            "Destino": {"label": "Destino:", "type": "text"},
+            "Comprador": {"label": "Comprador:", "type": "text"},
         },
         "col2": {
             "Modal": {"label": "Modal:", "type": "dropdown", "values": ["", "Aéreo", "Maritimo"]},
             "Navio": {"label": "Navio:", "type": "text", "conditional_field": "Modal", "conditional_value": "Maritimo"}, 
             "Quantidade_Containers": {"label": "Quantidade de Containers:", "type": "number", "conditional_field": "Modal", "conditional_value": "Maritimo"},
-            "Origem": {"label": "Origem:", "type": "text"},
-            "Destino": {"label": "Destino:", "type": "text"},
             "INCOTERM": {"label": "INCOTERM:", "type": "dropdown", "values": ["","EXW","FCA","FAS","FOB","CFR","CIF","CPT","CIP","DPU","DAP","DDP"]},
-            "Comprador": {"label": "Comprador:", "type": "text"},
+            "Pago": {"label": "Pago?:", "type": "dropdown", "values": ["Não", "Sim"]},
+            "Data_Compra": {"label": "Data de Compra:", "type": "date"},
+            "Data_Embarque": {"label": "Data de Embarque:", "type": "date"},
+            "ETA_Recinto": {"label": "ETA no Recinto:", "type": "date"},
+            "Previsao_Pichau": {"label": "Previsão na Pichau:", "type": "date"},
+            "Status_Geral": {"label": "Status Geral (para e-mail):", "type": "dropdown", "values": db_manager.STATUS_OPTIONS},
         }
     },
     "Itens": {},
     "Valores e Estimativas": {
         "Estimativa_Dolar_BRL": {"label": "Cambio Estimado (R$):", "type": "currency_br"},
         "Valor_USD": {"label": "Valor (USD):", "type": "currency_usd", "disabled": True},
-        "Pago": {"label": "Pago?:", "type": "dropdown", "values": ["Não", "Sim"]},
         "Estimativa_Frete_USD": {"label": "Estimativa de Frete (USD):", "type": "currency_usd"},
         "Estimativa_Seguro_BRL": {"label": "Estimativa Seguro (R$):", "type": "currency_br"},
         "Estimativa_II_BR": {"label": "Estimativa de II (R$):", "type": "currency_br", "disabled": True},
@@ -666,12 +822,8 @@ campos_config_tabs = {
         "Estimativa_Impostos_BR": {"label": "Estimativa Impostos (Antigo):", "type": "currency_br", "disabled": True},
     },
     "Status Operacional": {
-        "Status_Geral": {"label": "Status Geral:", "type": "dropdown", "values": db_manager.STATUS_OPTIONS},
-        "Data_Compra": {"label": "Data de Compra:", "type": "date"},
-        "Data_Embarque": {"label": "Data de Embarque:", "type": "date"},
-        "ETA_Recinto": {"label": "ETA no Recinto:", "type": "date"},
-        "Data_Registro": {"label": "Data de Registro:", "type": "date"},
-        "Previsao_Pichau": {"label": "Previsão na Pichau:", "type": "date"},
+        # Campos de status operacional movidos para "Dados Gerais" ou mantidos aqui se forem muito específicos.
+        # "Data_Registro": {"label": "Data de Registro:", "type": "date"}, # Movido para Dados Gerais
         "Documentos_Revisados": {"label": "Documentos Revisados:", "type": "dropdown", "values": ["Não", "Sim"]},
         "Conhecimento_Embarque": {"label": "Conhecimento de embarque:", "type": "dropdown", "values": ["Não", "Sim"]},
         "Descricao_Feita": {"label": "Descrição Feita:", "type": "dropdown", "values": ["Não", "Sim"]},
@@ -733,7 +885,7 @@ def _initialize_form_state(form_state_key: str, process_identifier: Optional[Any
     
     # Preenche st.session_state[form_state_key] com os dados carregados ou padrões
     st.session_state[form_state_key] = {}
-    for tab_config in campos_config_tabs.values():
+    for tab_name, tab_config in campos_config_tabs.items():
         if "col1" in tab_config: # Para tabs com colunas
             for field_name, config in tab_config["col1"].items():
                 st.session_state[form_state_key][field_name] = process_data.get(field_name)
@@ -820,7 +972,10 @@ def _initialize_form_state(form_state_key: str, process_identifier: Optional[Any
         
         total_invoice_weight_kg_calc = 0.0
         if "Peso Unitário" in df_items_calc.columns and "Quantidade" in df_items_calc.columns:
-            total_invoice_weight_kg_calc = (pd.to_numeric(df_items_calc['Peso Unitário'], errors='coerce').fillna(0) * pd.to_numeric(df_items_calc['Quantidade'], errors='coerce').fillna(0)).sum()
+            # Garante que as colunas são numéricas antes de multiplicar
+            peso_unitario_numeric = pd.to_numeric(df_items_calc['Peso Unitário'], errors='coerce').fillna(0)
+            quantidade_numeric = pd.to_numeric(df_items_calc['Quantidade'], errors='coerce').fillna(0)
+            total_invoice_weight_kg_calc = (peso_unitario_numeric * quantidade_numeric).sum()
         st.session_state.total_invoice_weight_kg = total_invoice_weight_kg_calc
     else:
         st.session_state.total_invoice_value_usd = 0.0
@@ -946,9 +1101,41 @@ def show_process_form_page(process_identifier: Optional[Any] = None, reload_proc
                             default_value_for_number_input = int(current_value) if (current_value is not None and not pd.isna(current_value)) else 0
                             widget_value = st.number_input(config["label"], value=default_value_for_number_input, format="%d", key=f"{form_state_key}_{field_name}", disabled=is_disabled_overall)
                             st.session_state[form_state_key][field_name] = int(widget_value) if widget_value is not None else None
+                        elif config["type"] == "date":
+                            current_value_dt = None
+                            if current_value:
+                                try:
+                                    if isinstance(current_value, str):
+                                        current_value_dt = datetime.strptime(current_value, "%Y-%m-%d").date()
+                                    elif isinstance(current_value, (datetime, date)):
+                                        current_value_dt = current_value.date()
+                                except ValueError:
+                                    current_value_dt = None
+                            widget_value = st.date_input(config["label"], value=current_value_dt, key=f"{form_state_key}_{field_name}", format="DD/MM/YYYY", disabled=is_disabled_overall)
+                            st.session_state[form_state_key][field_name] = widget_value.strftime("%Y-%m-%d") if widget_value else None
                         else:
                             widget_value = st.text_input(config["label"], value=current_value if current_value is not None else "", key=f"{form_state_key}_{field_name}", disabled=is_disabled_overall, help="Selecione 'Maritimo' no campo Modal para habilitar." if is_conditional_field and not is_editable_conditional else None)
                             st.session_state[form_state_key][field_name] = widget_value if widget_value else None
+
+                st.markdown("---")
+                st.subheader("Importar/Exportar Dados do Processo")
+                col_download_process_template, col_upload_process_excel = st.columns([0.25, 0.75])
+                with col_download_process_template:
+                    process_excel_template_data = _generate_process_excel_template()
+                    st.download_button(
+                        label="Baixar Template Processo", data=process_excel_template_data, file_name="template_dados_gerais_processo.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="download_process_excel_template_new"
+                    )
+                with col_upload_process_excel:
+                    uploaded_process_file = st.file_uploader("Upload Excel/CSV de Dados do Processo", type=["csv", "xls", "xlsx"], key="upload_process_file_new")
+                    current_process_upload_key = (uploaded_process_file.name, uploaded_process_file.size) if uploaded_process_file else None
+                    
+                    if uploaded_process_file is not None and current_process_upload_key != st.session_state.get('last_processed_process_upload_key'):
+                        if _import_process_from_excel(uploaded_process_file, form_state_key):
+                            st.session_state.last_processed_process_upload_key = current_process_upload_key
+                            st.rerun()
+                        else:
+                            st.session_state.last_processed_process_upload_key = None
 
             elif tab_name == "Itens":
                 st.subheader("Itens do Processo")
@@ -1151,7 +1338,7 @@ def show_process_form_page(process_identifier: Optional[Any] = None, reload_proc
                                     total_invoice_value_usd_recalc = temp_df_for_recalc["Valor total do item"].sum() if "Valor total do item" in temp_df_for_recalc.columns else 0.0
                                     total_invoice_weight_kg_recalc = 0.0
                                     if "Peso Unitário" in temp_df_for_recalc.columns and "Quantidade" in temp_df_for_recalc.columns:
-                                        total_invoice_weight_kg_recalc = (pd.to_numeric(temp_df_for_calc['Peso Unitário'], errors='coerce').fillna(0) * pd.to_numeric(temp_df_for_calc['Quantidade'], errors='coerce').fillna(0)).sum()
+                                        total_invoice_weight_kg_recalc = (pd.to_numeric(temp_df_for_recalc['Peso Unitário'], errors='coerce').fillna(0) * pd.to_numeric(temp_df_for_recalc['Quantidade'], errors='coerce').fillna(0)).sum()
                                     
                                     st.session_state.total_invoice_value_usd = total_invoice_value_usd_recalc
                                     st.session_state.total_invoice_weight_kg = total_invoice_weight_kg_recalc
@@ -1201,7 +1388,7 @@ def show_process_form_page(process_identifier: Optional[Any] = None, reload_proc
                 # Atualiza o Valor_USD no estado do formulário com o total calculado
                 st.session_state[form_state_key]["Valor_USD"] = total_itens_usd_from_session 
                 
-                pago_current = st.session_state[form_state_key].get("Pago", "Não")
+                # Campos de Valores e Estimativas
                 frete_usd_current = float(st.session_state[form_state_key].get("Estimativa_Frete_USD", 0.0) or 0.0)
                 seguro_brl_current = float(st.session_state[form_state_key].get("Estimativa_Seguro_BRL", 0.0) or 0.0)
                 icms_br_manual_estimate_current = float(st.session_state[form_state_key].get("Estimativa_ICMS_BR", 0.0) or 0.0)
@@ -1216,9 +1403,6 @@ def show_process_form_page(process_identifier: Optional[Any] = None, reload_proc
                     st.number_input(
                         "Valor (USD):", value=float(st.session_state[form_state_key]["Valor_USD"] or 0.0), format="%.2f",
                         key=f"{form_state_key}_Valor_USD_display", disabled=True
-                    )
-                    st.session_state[form_state_key]["Pago"] = st.selectbox(
-                        "Pago?:", options=["Não", "Sim"], index=0 if pago_current == "Não" else 1, key=f"{form_state_key}_Pago"
                     )
                     st.session_state[form_state_key]["Estimativa_Frete_USD"] = st.number_input(
                         "Estimativa de Frete (USD):", value=frete_usd_current, format="%.2f", key=f"{form_state_key}_Estimativa_Frete_USD"
@@ -1460,3 +1644,4 @@ def show_process_form_page(process_identifier: Optional[Any] = None, reload_proc
     elif linked_di_id is not None and not linked_di_number: 
         st.markdown("---")
         st.warning(f"DI vinculada (ID: {linked_di_id}) não encontrada no banco de dados de Declarações de Importação.")
+

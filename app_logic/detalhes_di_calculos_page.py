@@ -259,7 +259,9 @@ def show_page():
     set_background_image(background_image_path)
     # --- Fim da Configuração da Imagem de Fundo ---
 
-    
+    if st.button("Voltar para Follow-up Importação"):
+        st.session_state.current_page = "Follow-up Importação"
+        st.rerun()
     # Inicializa o estado da sessão para esta página
     # O valor inicial do text_input, se a página for recarregada sem navegação externa
     # será o último valor que o usuário digitou ou que foi preenchido.
@@ -368,51 +370,51 @@ def show_page():
                 )
 
             with col_calculations:
+                with st.popover("Pagamentos",):
                 
-                
-                # --- Categoria: Despachantes ---
-                st.markdown("###### Despachantes")
-                if icon_button("Futura", "📝", "calc_futura_button"):
-                    navigate_to_calc_page("Cálculo Futura", "selected_di_id_futura")
-                st.markdown("---")
+                    # --- Categoria: Despachantes ---
+                    st.markdown("###### Despachantes")
+                    if icon_button("Futura", "📝", "calc_futura_button"):
+                        navigate_to_calc_page("Cálculo Futura", "selected_di_id_futura")
+                    st.markdown("---")
 
-                # --- Categoria: Portos ---
-                st.markdown("###### Portos")
-                if icon_button("Portonave", "🚢", "calc_portonave_button"):
-                    navigate_to_calc_page("Cálculo Portonave", "portonave_selected_di_id")
-                icon_button("Itapoá", "🚢", "calc_itapoa_button", disabled=True)
-                st.markdown("---")
+                    # --- Categoria: Portos ---
+                    st.markdown("###### Portos")
+                    if icon_button("Portonave", "🚢", "calc_portonave_button"):
+                        navigate_to_calc_page("Cálculo Portonave", "portonave_selected_di_id")
+                    icon_button("Itapoá", "🚢", "calc_itapoa_button", disabled=True)
+                    st.markdown("---")
 
-                # --- Categoria: Aeroportos ---
-                st.markdown("###### Aeroportos")
-                if icon_button("Pac Log - Elo", "✈️", "calc_paclog_button"):
-                    navigate_to_calc_page("Cálculo Pac Log - Elo", "selected_di_id_paclog")
-                icon_button("Ponta Negra", "✈️", "calc_pontanegra_button", disabled=True)
-                icon_button("Floripa Air", "✈️", "calc_floripaair_button", disabled=True)
-                st.markdown("---")
+                    # --- Categoria: Aeroportos ---
+                    st.markdown("###### Aeroportos")
+                    if icon_button("Pac Log - Elo", "✈️", "calc_paclog_button"):
+                        navigate_to_calc_page("Cálculo Pac Log - Elo", "selected_di_id_paclog")
+                    icon_button("Ponta Negra", "✈️", "calc_pontanegra_button", disabled=True)
+                    icon_button("Floripa Air", "✈️", "calc_floripaair_button", disabled=True)
+                    st.markdown("---")
 
-                # --- Categoria: Fretes ---
-                st.markdown("###### Fretes")
-                # Habilitado o botão FN Transportes
-                if icon_button("FN Transportes", "🚚", "calc_fntransportes_button", disabled=False):
-                    navigate_to_calc_page("Cálculo FN Transportes", "selected_di_id_fn_transportes")
-                # Habilita o botão Cálculo Frete Internacional
-                if icon_button("Frete Internacional", "🌍", "calc_frete_internacional_button", disabled=False):
-                    navigate_to_calc_page("Cálculo Frete Internacional", "selected_di_id_frete_internacional")
-                
-                st.markdown("---")
+                    # --- Categoria: Fretes ---
+                    st.markdown("###### Fretes")
+                    # Habilitado o botão FN Transportes
+                    if icon_button("FN Transportes", "🚚", "calc_fntransportes_button", disabled=False):
+                        navigate_to_calc_page("Cálculo FN Transportes", "selected_di_id_fn_transportes")
+                    # Habilita o botão Cálculo Frete Internacional
+                    if icon_button("Frete Internacional", "🌍", "calc_frete_internacional_button", disabled=False):
+                        navigate_to_calc_page("Cálculo Frete Internacional", "selected_di_id_frete_internacional")
+                    
+                    st.markdown("---")
 
-                # --- Categoria: Seguro ---
-                st.markdown("###### Seguro")
-                icon_button("Ação", "🛡️", "calc_acao_button", disabled=True)
-                st.markdown("---")
+                    # --- Categoria: Seguro ---
+                    st.markdown("###### Seguro")
+                    icon_button("Ação", "🛡️", "calc_acao_button", disabled=True)
+                    st.markdown("---")
 
-                # --- Categoria: Conferências ---
-                st.markdown("###### Conferências")
-                icon_button("Seguro", "✅", "calc_seguro_button", disabled=True)
-                if icon_button("Fechamento", "�", "calc_fechamento_button"):
-                    navigate_to_calc_page("Cálculo Fechamento", "selected_di_id_fechamento")
-                st.markdown("---")
+                    # --- Categoria: Conferências ---
+                    st.markdown("###### Conferências")
+                    icon_button("Seguro", "✅", "calc_seguro_button", disabled=True)
+                    if icon_button("Fechamento", "�", "calc_fechamento_button"):
+                        navigate_to_calc_page("Cálculo Fechamento", "selected_di_id_fechamento")
+                    st.markdown("---")
 
     else:
         st.info("Nenhuma Declaração de Importação carregada. Por favor, digite uma Referência ou ID para começar.")

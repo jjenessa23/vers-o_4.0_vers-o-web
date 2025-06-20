@@ -76,10 +76,9 @@ def show_produtos_page():
         st.session_state.current_page = "Follow-up Importação"
         st.rerun()
 
-    st.markdown("---")
-
+    
     # Expander para filtros
-    with st.expander("Filtros de Produtos"):
+    with st.popover("Filtrar Produtos"):
         col1, col2 = st.columns(2)
         with col1:
             st.session_state.produtos_filter_codigo_interno = st.text_input(
@@ -105,15 +104,17 @@ def show_produtos_page():
             )
         
         # Botão para aplicar filtros (pode ser automático via st.text_input, mas um botão dá controle)
-        if st.button("Aplicar Filtros"):
-            st.rerun() # Dispara um rerun para aplicar os filtros
-
-        if st.button("Limpar Filtros"):
-            st.session_state.produtos_filter_codigo_interno = ""
-            st.session_state.produtos_filter_denominacao = ""
-            st.session_state.produtos_filter_sku = ""
-            st.session_state.produtos_filter_ncm = ""
-            st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Aplicar Filtros"):
+               st.rerun() # Dispara um rerun para aplicar os filtros
+        with col2:
+            if st.button("Limpar Filtros"):
+                st.session_state.produtos_filter_codigo_interno = ""
+                st.session_state.produtos_filter_denominacao = ""
+                st.session_state.produtos_filter_sku = ""
+                st.session_state.produtos_filter_ncm = ""
+                st.rerun()
 
     st.markdown("---")
 

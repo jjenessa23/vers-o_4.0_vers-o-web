@@ -3,10 +3,6 @@ reportlab
 xlsxwriter
 gspread
 oauth2client
-pandas
-altair
+pandas 
+altair 
 numpy
-pdfplumber
-google-cloud-firestore
-firebase-admin
-weasyprint

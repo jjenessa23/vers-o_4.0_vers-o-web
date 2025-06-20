@@ -298,7 +298,7 @@ def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]
         logger.info("db_utils.py: Usando Firestore para verificar credenciais.")
         users_ref = get_firestore_collection_ref("users")
         if not users_ref:
-            logger.error("db_utils.py: Falha ao acessar coleção 'users' no Firestore para verificar credenciais.")
+            logger.error(f"db_utils.py: Falha ao acessar coleção 'users' no Firestore para verificar credenciais.")
             return None
         try:
             user_doc = users_ref.document(username).get()
@@ -321,7 +321,7 @@ def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]
             logger.exception(f"db_utils.py: Erro ao verificar credenciais para o usuário {username} no Firestore: {e}")
             return None
     else:
-        logger.warning("db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível verificar credenciais.")
+        logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível verificar credenciais.")
     return None
 
 def get_all_users() -> List[Dict[str, Any]]:
@@ -331,7 +331,7 @@ def get_all_users() -> List[Dict[str, Any]]:
         logger.info("db_utils.py: Usando Firestore para obter todos os usuários.")
         users_ref = get_firestore_collection_ref("users")
         if not users_ref:
-            logger.error("db_utils.py: Falha ao acessar coleção 'users' no Firestore para obter todos os usuários.")
+            logger.error(f"db_utils.py: Falha ao acessar coleção 'users' no Firestore para obter todos os usuários.")
             return []
         try:
             users = []
@@ -349,41 +349,77 @@ def get_all_users() -> List[Dict[str, Any]]:
             logger.error(f"db_utils.py: Erro ao obter todos os usuários do Firestore: {e}")
             return []
     else:
-        logger.warning("db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível obter todos os usuários.")
+        logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível obter todos os usuários.")
     return []
 
 def get_user_by_id_or_username(identifier: Any) -> Optional[Dict[str, Any]]:
-    """
-    Obtém um único usuário pelo seu ID (Firestore usa username como ID do documento).
-    Retorna um dicionário com os dados do usuário, ou None se não encontrado. SOMENTE Firestore.
-    """
-    logger.info(f"db_utils.py: Buscando usuário por identificador: {identifier}")
-    if db_firestore:
-        logger.info("db_utils.py: Usando Firestore para buscar usuário por username.")
-        users_ref = get_firestore_collection_ref("users")
-        if not users_ref:
-            logger.error(f"db_utils.py: Falha ao acessar coleção 'users' no Firestore para buscar usuário.")
-            return None
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.WARNING) # Mantenha WARNING ou INFO para produção, DEBUG para depuração intensa.
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+    logger.info("db_utils.py: Módulo inicializado.")
+
+    _USE_FIRESTORE_AS_PRIMARY = True
+
+    logger.info(f"db_utils.py: _USE_FIRESTORE_AS_PRIMARY = {_USE_FIRESTORE_AS_PRIMARY}")
+
+    db_firestore: Optional[firestore.Client] = None
+    try:
+        logger.info("db_utils.py: Tentando importar streamlit para credenciais...")
+        import streamlit as st
+        logger.info("db_utils.py: Streamlit importado com sucesso. Tentando carregar credenciais de st.secrets.")
+
+        if "firestore_service_account" not in st.secrets:
+            logger.critical("db_utils.py: Erro CRÍTICO: Chave 'firestore_service_account' NÃO encontrada em st.secrets. Verifique secrets.toml.")
+            db_firestore = None
+            raise ValueError("Chave 'firestore_service_account' ausente em st.secrets.")
+
+        firestore_secrets = st.secrets["firestore_service_account"]
+        logger.debug(f"db_utils.py: Bloco 'firestore_service_account' encontrado em st.secrets. Conteúdo parcial: {list(firestore_secrets.keys())}")
+
+        if "credentials_json" not in firestore_secrets:
+            logger.critical("db_utils.py: Erro CRÍTICO: Chave 'credentials_json' NÃO encontrada dentro de 'firestore_service_account' em st.secrets. Verifique secrets.toml.")
+            db_firestore = None
+            raise ValueError("Chave 'credentials_json' ausente em st.secrets['firestore_service_account'].")
+
+        _firestore_credentials_json = firestore_secrets["credentials_json"]
+        logger.debug(f"db_utils.py: Comprimento da string credentials_json lida: {len(_firestore_credentials_json)} caracteres.")
+
         try:
-            user_doc = users_ref.document(str(identifier)).get()
-            if user_doc.exists:
-                user_data = user_doc.to_dict()
-                logger.info(f"db_utils.py: Usuário '{identifier}' encontrado no Firestore.")
-                return {
-                    'id': user_doc.id,
-                    'username': user_data.get('username'),
-                    'is_admin': user_data.get('is_admin', False),
-                    'allowed_screens': user_data.get('allowed_screens', [])
-                }
-            else:
-                logger.warning(f"db_utils.py: Usuário com identificador '{identifier}' não encontrado no Firestore.")
-                return None
+            credentials_info = json.loads(_firestore_credentials_json)
+            logger.debug("db_utils.py: JSON de credenciais PARSEADO com sucesso. Verificando estrutura...")
+
+            if 'project_id' in credentials_info:
+                logger.debug(f"db_utils.py: Project ID nas credenciais: {credentials_info['project_id']}")
+            if 'client_email' in credentials_info:
+                logger.debug(f"db_utils.py: Client Email nas credenciais: {credentials_info['client_email']}")
+
+        except json.JSONDecodeError as jde:
+            logger.critical(f"db_utils.py: Erro CRÍTICO de DECODIFICAÇÃO JSON nas credenciais do Firestore: {jde}. Verifique a formatação em secrets.toml, especialmente as quebras de linha e aspas.")
+            db_firestore = None
+            raise
+
+        _firestore_credentials = service_account.Credentials.from_service_account_info(
+            credentials_info
+        )
+        logger.debug("db_utils.py: Objeto service_account.Credentials criado com sucesso.")
+
+        db_firestore = firestore.Client(credentials=_firestore_credentials, project=_firestore_credentials.project_id)
+        logger.info(f"db_utils.py: Firestore client inicializado com sucesso via st.secrets para o projeto: {_firestore_credentials.project_id}.")
+    except ImportError:
+        logger.warning("db_utils.py: Streamlit não encontrado. Tentando inicializar Firestore via variável de ambiente GOOGLE_APPLICATION_CREDENTIALS.")
+        try:
+            db_firestore = firestore.Client()
+            logger.info("db_utils.py: Firestore client inicializado com sucesso via credenciais padrão do ambiente (GOOGLE_APPLICATION_CREDENTIALS).")
         except Exception as e:
-            logger.error(f"db_utils.py: Erro ao buscar usuário com identificador '{identifier}' no Firestore: {e}")
-            return None
-    else:
-        logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível buscar usuário.")
-    return None
+            logger.error(f"db_utils.py: Erro CRÍTICO ao inicializar Firestore client sem Streamlit: {e}. Certifique-se de que GOOGLE_APPLICATION_CREDENTIALS esteja configurado corretamente.")
+            db_firestore = None
+    except Exception as e:
+        logger.exception(f"db_utils.py: Erro INESPERADO ao inicializar Firestore client com st.secrets: {e}")
 
 def adicionar_ou_atualizar_usuario(user_id: Optional[int], username: str, password_hash: str, is_admin: bool, allowed_screens: List[str]) -> bool:
     """
@@ -497,7 +533,7 @@ def deletar_usuario(user_identifier: Any) -> bool:
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'users' no Firestore para deletar.")
             success_firestore = False
     else:
-        logger.warning("db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível deletar usuário.")
+        logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível deletar usuário.")
         success_firestore = False
     return success_firestore
 
@@ -555,14 +591,14 @@ def seleccionar_todos_ncm_itens():
             for doc in ncm_impostos_ref.order_by("ncm_code").stream():
                 data = doc.to_dict()
                 itens.append({
-                    "id": doc.id,
-                    "ncm_code": data.get('ncm_code'),
-                    "descricao_item": data.get('descricao_item'),
-                    "ii_aliquota": data.get('ii_aliquota'),
-                    "ipi_aliquota": data.get('ipi_aliquota'),
-                    "pis_aliquota": data.get('pis_aliquota'),
-                    "cofins_aliquota": data.get('cofins_aliquota'),
-                    "icms_aliquota": data.get('icms_aliquota')
+                    'id': doc.id,
+                    'ncm_code': data.get('ncm_code'),
+                    'descricao_item': data.get('descricao_item'),
+                    'ii_aliquota': data.get('ii_aliquota'),
+                    'ipi_aliquota': data.get('ipi_aliquota'),
+                    'pis_aliquota': data.get('pis_aliquota'),
+                    'cofins_aliquota': data.get('cofins_aliquota'),
+                    'icms_aliquota': data.get('icms_aliquota')
                 })
             logger.info(f"db_utils.py: Obtidos {len(itens)} itens NCM do Firestore.")
             return itens
@@ -1005,7 +1041,7 @@ def parse_xml_data_to_dict(xml_file_content: str) -> Tuple[Optional[Dict[str, An
                 quantidade = float(quantidade_str) / 10**5 if quantidade_str else 0.0
                 valor_unitario_fob_usd = float(valor_unitario_str) / 10**7 if valor_unitario_str else 0.0
                 valor_item_calculado_fob_brl = quantidade * valor_unitario_fob_usd * taxa_cambial_usd
-
+                
                 sku_item = re.match(r'([A-Z0-9-]+)', descricao).group(1) if re.match(r'([A-Z0-9-]+)', descricao) else "N/A"
                 peso_liquido_item = peso_unitario_medio_adicao * quantidade
                 custo_unit_di_usd = valor_unitario_fob_usd
@@ -1294,7 +1330,7 @@ def inserir_ou_atualizar_produto(produto: Tuple[str, str, str, str]):
     success_firestore = True
 
     data = {
-        "id_key_erp": produto[0],
+        "id_key_erp": id_key_erp, # Usar o id_key_erp diretamente
         "nome_part": produto[1],
         "descricao": produto[2],
         "ncm": produto[3]
@@ -1314,7 +1350,7 @@ def inserir_ou_atualizar_produto(produto: Tuple[str, str, str, str]):
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'produtos' no Firestore para inserir/atualizar.")
             success_firestore = False
     else:
-        logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível inserir/atualizar produto.")
+        logger.warning("db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível inserir/atualizar produto.")
         success_firestore = False
     return success_firestore
 
@@ -1327,7 +1363,7 @@ def selecionar_todos_produtos() -> List[Dict[str, Any]]:
         logger.info(f"db_utils.py: Usando Firestore para selecionar todos os produtos.")
         produtos_ref = get_firestore_collection_ref("produtos")
         if not produtos_ref:
-            logger.error(f"db_utils.py: Falha ao obter referência da coleção 'produtos' no Firestore para selecionar todos.")
+            logger.error(f"db_utils.py: Falha ao acessar coleção 'produtos' no Firestore para selecionar todos.")
             return []
         try:
             docs = produtos_ref.order_by("id_key_erp").order_by("nome_part").stream()
@@ -1355,8 +1391,9 @@ def selecionar_produto_por_id(id_key_erp: str) -> Optional[Dict[str, Any]]:
         try:
             doc = produtos_ref.document(id_key_erp).get()
             if doc.exists:
+                data = doc.to_dict()
                 logger.info(f"db_utils.py: Produto com ID/Key ERP '{id_key_erp}' encontrado no Firestore.")
-                return doc.to_dict()
+                return data
             logger.warning(f"db_utils.py: Produto com ID/Key ERP '{id_key_erp}' não encontrado no Firestore.")
             return None
         except Exception as e:
@@ -1366,36 +1403,50 @@ def selecionar_produto_por_id(id_key_erp: str) -> Optional[Dict[str, Any]]:
         logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível selecionar produto por ID.")
     return None
 
-def seleccionar_produtos_por_ids(ids: List[str]):
+def selecionar_produtos_por_ids(ids: List[str]):
     """
     Seleciona produtos por uma lista de IDs. SOMENTE Firestore.
+    Lida com o limite de 10 IDs por consulta `in` do Firestore, dividindo em lotes.
+    Limita o número total de IDs a 300 para evitar sobrecarga.
     """
     logger.info(f"db_utils.py: Selecionando produtos por IDs: {ids}")
     if not ids:
         logger.info(f"db_utils.py: Lista de IDs vazia para selecionar produtos.")
         return []
 
+    # Limitar o número total de IDs para evitar sobrecarga e manter a resposta ágil
+    MAX_TOTAL_IDS = 300
+    if len(ids) > MAX_TOTAL_IDS:
+        logger.warning(f"db_utils.py: Número de IDs ({len(ids)}) excede o limite de {MAX_TOTAL_IDS}. Processando apenas os primeiros {MAX_TOTAL_IDS} IDs.")
+        ids = ids[:MAX_TOTAL_IDS]
+
     if db_firestore:
-        logger.info(f"db_utils.py: Usando Firestore para selecionar produtos por IDs.")
+        logger.info(f"db_utils.py: Usando Firestore para selecionar produtos por IDs. Total de IDs para processar: {len(ids)}.")
         produtos_ref = get_firestore_collection_ref("produtos")
         if not produtos_ref:
             logger.error(f"db_utils.py: Falha ao obter referência da coleção 'produtos' no Firestore para selecionar por IDs.")
             return []
-        try:
-            # Firestore tem um limite de 10 IDs para consultas 'in'
-            if len(ids) > 10:
-                logger.warning(f"db_utils.py: Query por múltiplos IDs no Firestore com mais de 10 IDs. Retornando apenas os 10 primeiros.")
-                docs = produtos_ref.where(firestore.FieldPath.document_id(), 'in', ids[:10]).stream()
-            else:
-                docs = produtos_ref.where(firestore.FieldPath.document_id(), 'in', ids).stream()
+        
+        all_found_products = {} # Usar um dicionário para evitar duplicatas e manter acesso rápido
+        
+        # Divide os IDs em lotes de 10 (limite do Firestore para consultas 'in')
+        for i in range(0, len(ids), 10):
+            batch_ids = ids[i:i + 10]
+            logger.debug(f"db_utils.py: Executando consulta em lote para IDs: {batch_ids}")
+            try:
+                docs = produtos_ref.where(firestore.FieldPath.document_id(), 'in', batch_ids).stream()
+                for doc in docs:
+                    all_found_products[doc.id] = doc.to_dict() # Armazena pelo ID do documento
+            except Exception as e:
+                logger.error(f"db_utils.py: Erro ao buscar produtos em lote para IDs {batch_ids} no Firestore: {e}")
+                # Continua para o próximo lote mesmo se um falhar
 
-            produtos_dict = {doc.id: doc.to_dict() for doc in docs}
-            produtos_ordenados = [produtos_dict[id] for id in ids if id in produtos_dict]
-            logger.info(f"db_utils.py: Obtidos {len(produtos_ordenados)} produtos por IDs do Firestore.")
-            return produtos_ordenados
-        except Exception as e:
-            logger.error(f"db_utils.py: Erro ao buscar produtos por IDs no Firestore: {e}")
-            return []
+        # Reordena os produtos encontrados para corresponder à ordem dos IDs originais
+        # e inclui apenas os que foram realmente encontrados.
+        produtos_ordenados = [all_found_products[p_id] for p_id in ids if p_id in all_found_products]
+        
+        logger.info(f"db_utils.py: Obtidos {len(produtos_ordenados)} produtos do Firestore para os IDs fornecidos.")
+        return produtos_ordenados
     else:
         logger.warning(f"db_utils.py: Firestore client não inicializado ou desabilitado. Não é possível selecionar produtos por IDs.")
     return []
@@ -1445,13 +1496,18 @@ def inserir_ou_atualizar_frete_internacional(frete_data: Dict[str, Any]):
     logger.info(f"db_utils.py: Inserindo/Atualizando frete internacional para referência: {referencia_processo}")
     success_firestore = True
 
+    data = {
+        "referencia_processo": referencia_processo, # Garante que a chave primária está nos dados
+        **frete_data # Adiciona todos os outros dados
+    }
+
     if db_firestore:
         logger.info(f"db_utils.py: Usando Firestore para inserir/atualizar frete internacional.")
         frete_ref = get_firestore_collection_ref("frete_internacional")
         if frete_ref:
             try:
                 doc_ref = frete_ref.document(referencia_processo)
-                doc_ref.set(frete_data, merge=True)
+                doc_ref.set(data, merge=True)
                 logger.info(f"db_utils.py: Frete internacional para '{referencia_processo}' inserido/atualizado com sucesso no Firestore.")
             except Exception as e:
                 logger.error(f"db_utils.py: Erro ao inserir/atualizar frete internacional para '{referencia_processo}' no Firestore: {e}")
@@ -1592,4 +1648,3 @@ def get_all_xml_declaracoes_with_costs_from_firestore():
     except Exception as e:
         logger.error(f"Erro ao obter declarações XML com dados de custo do Firestore: {e}", exc_info=True)
         return []
-

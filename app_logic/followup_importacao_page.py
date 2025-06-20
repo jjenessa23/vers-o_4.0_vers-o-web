@@ -167,7 +167,7 @@ def _display_delete_confirm_popup():
 
     with st.form(key=f"delete_confirm_form_{process_id_to_delete}"):
         st.markdown(f"### Confirmar Arquivamento")
-        st.warning(f"Tem certeza que deseja arquivar o processo '{process_name_to_delete}' (ID: {process_id_to_delete})? Ele não será excluído do banco de dados, mas não aparecerá na tela principal.")
+        st.warning(f"Tem certeza que deseja arquivar o processo {process_name_to_delete} ? Ele não será excluído do banco de dados, mas não aparecerá na tela principal.")
         
         col_yes, col_no = st.columns(2)
         with col_yes:
@@ -222,9 +222,8 @@ def _load_processes():
         # Garante que 'Processo_Novo' não persista se o campo principal for limpo
         combined_search_terms.pop('Processo_Novo', None) 
 
-    # Busca TODOS os processos primeiro (filtrados apenas pelos termos de pesquisa combinados)
-    # Isso permite que _update_status_filter_options calcule contagens sobre o dataset completo
-    # antes de aplicar os filtros de status.
+    # Buscar TODOS os processos (arquivados e não arquivados) que correspondem aos termos de pesquisa de texto
+    # e filtros de data. A filtragem de status de arquivamento será feita em memória.
     processes_raw = db_manager.obter_processos_filtrados('Todos', combined_search_terms)
     df_processes_all_unfiltered = pd.DataFrame([dict(row) for row in processes_raw])
 
@@ -232,34 +231,64 @@ def _load_processes():
     df_processes_all_unfiltered['Status_Geral'] = df_processes_all_unfiltered.get('Status_Geral', pd.Series('Sem Status', index=df_processes_all_unfiltered.index)).fillna('Sem Status')
     df_processes_all_unfiltered['Modal'] = df_processes_all_unfiltered.get('Modal', pd.Series('Sem Modal', index=df_processes_all_unfiltered.index)).fillna('Sem Modal')
 
-    # Atualiza as opções de status e suas contagens para o multiselect.
-    _update_status_filter_options(df_processes_all_unfiltered) # Passa o DF completo para contagens
+    # Adicionado: Garante que 'Status_Arquivado' exista com um valor padrão
+    if 'Status_Arquivado' not in df_processes_all_unfiltered.columns:
+        df_processes_all_unfiltered['Status_Arquivado'] = 'Não Arquivado' # Ou outro valor padrão desejado
 
-    # Aplica o filtro de status selecionado no multiselect
-    selected_statuses = st.session_state.get('followup_selected_statuses', ['Todos'])
-    
-    df_processes_filtered_by_status = df_processes_all_unfiltered.copy() # Começa com os dados já filtrados por termo de pesquisa
-    
-    # Lógica para filtrar por status "Arquivado" no multiselect
-    # Se "Arquivados" não está selecionado, remova os arquivados da exibição padrão.
-    if 'Todos' not in selected_statuses:
-        if 'Arquivados' not in selected_statuses:
-            df_processes_filtered_by_status = df_processes_filtered_by_status[
-                df_processes_filtered_by_status['Status_Arquivado'].isin([None, "Não Arquivado"])
-            ]
-        # Se 'Arquivados' está selecionado, mostra apenas os arquivados (e outros status específicos)
-        # Se 'Todos' não está selecionado e 'Arquivados' está selecionado, e há outros status,
-        # isso já é tratado pelo isin(selected_statuses) após esta verificação.
-        df_processes_filtered_by_status = df_processes_filtered_by_status[
-            df_processes_filtered_by_status['Status_Geral'].isin(selected_statuses) | 
-            ((df_processes_filtered_by_status['Status_Arquivado'] == 'Arquivado') & ('Arquivados' in selected_statuses))
+    # Adicionado: Garante que 'Processo_Novo' exista no DataFrame.
+    if 'Processo_Novo' not in df_processes_all_unfiltered.columns and 'id' in df_processes_all_unfiltered.columns:
+        df_processes_all_unfiltered['Processo_Novo'] = df_processes_all_unfiltered['id']
+    elif 'Processo_Novo' not in df_processes_all_unfiltered.columns:
+        df_processes_all_unfiltered['Processo_Novo'] = 'UNKNOWN_PROCESS_' + pd.Series(range(len(df_processes_all_unfiltered))).astype(str)
+
+    # --- Filtragem em memória aprimorada baseada nos requisitos do usuário ---
+    selected_statuses_from_multiselect = st.session_state.get('followup_selected_statuses', ['Todos'])
+    df_filtered_in_memory = df_processes_all_unfiltered.copy()
+
+    # Determinar se a pesquisa principal por nome do processo está ativa
+    is_main_process_name_search_active = bool(st.session_state.get('followup_main_process_search_term', '').strip())
+
+    # Condição para exibir processos arquivados:
+    # 1. Se "Arquivados" está explicitamente selecionado no multiselect.
+    # 2. OU se uma pesquisa principal por nome de processo está ativa (para mostrar resultados da pesquisa).
+    condition_show_archived_in_view = (
+        'Arquivados' in selected_statuses_from_multiselect or
+        is_main_process_name_search_active
+    )
+
+    # Se NÃO estamos explicitamente exibindo processos arquivados, então filtre-os.
+    # Isso cobre o caso "Todos" (padrão) e outros status específicos sem pesquisa ativa.
+    if not condition_show_archived_in_view:
+        df_filtered_in_memory = df_filtered_in_memory[
+            df_filtered_in_memory['Status_Arquivado'].isin([None, "Não Arquivado"])
         ]
-    else: # Se "Todos" está selecionado, não filtra por Status_Geral, mas ainda respeita o filtro de Arquivado se ele não for o único selecionado.
-        # Quando "Todos" está selecionado, queremos ver TUDO (incluindo arquivados e não-arquivados)
-        # exceto se a única seleção for "Arquivados" (o que não deveria acontecer junto com "Todos")
-        pass # Não aplica filtro de status_geral aqui se 'Todos' está no multiselect
-
     
+    # Agora, aplique o filtro de Status_Geral se "Todos" não estiver selecionado.
+    if 'Todos' not in selected_statuses_from_multiselect:
+        if 'Arquivados' in selected_statuses_from_multiselect:
+            # Se "Arquivados" e outros status gerais estão selecionados, combine as condições.
+            temp_general_statuses_to_filter = [s for s in selected_statuses_from_multiselect if s != 'Todos' and s != 'Arquivados']
+            if temp_general_statuses_to_filter:
+                df_filtered_in_memory = df_filtered_in_memory[
+                    (df_filtered_in_memory['Status_Geral'].isin(temp_general_statuses_to_filter)) |
+                    (df_filtered_in_memory['Status_Arquivado'] == 'Arquivado') # Mantenha arquivados se "Arquivados" foi selecionado
+                ]
+            else: # Apenas "Arquivados" foi selecionado
+                df_filtered_in_memory = df_filtered_in_memory[df_filtered_in_memory['Status_Arquivado'] == 'Arquivado']
+        else: # Apenas status gerais específicos (não "Todos", não "Arquivados")
+            df_filtered_in_memory = df_filtered_in_memory[df_filtered_in_memory['Status_Geral'].isin(selected_statuses_from_multiselect)]
+
+    # Aplica outros termos de pesquisa do popup (N_Invoice, Fornecedor, etc.)
+    if combined_search_terms:
+        for col, term in combined_search_terms.items():
+            if col not in ['Processo_Novo', 'ETA_Recinto_Start', 'ETA_Recinto_End', 'Data_Registro_Start', 'Data_Registro_End'] and term:
+                df_filtered_in_memory = df_filtered_in_memory[
+                    df_filtered_in_memory[col].astype(str).str.lower().str.contains(str(term).lower(), na=False)
+                ]
+
+    df_processes_filtered_by_status = df_filtered_in_memory
+    # --- Fim da filtragem em memória aprimorada ---
+
     # Ordena o DataFrame para exibição
     custom_status_order = [
         'Encerrado','Chegada Pichau', 'Agendado', 'Liberado', 'Registrado',
@@ -407,6 +436,7 @@ def _open_edit_process_popup(process_identifier: Optional[Any] = None, is_clonin
     st.session_state.show_import_popup = False
     st.session_state.show_delete_confirm_popup = False
     st.session_state.show_mass_edit_popup = False
+    st.session_state.show_change_status_popup = False # Fechar status popup
     st.rerun()
 
 def _open_process_query_page(process_identifier: Any):
@@ -417,6 +447,7 @@ def _open_process_query_page(process_identifier: Any):
     st.session_state.show_import_popup = False
     st.session_state.show_delete_confirm_popup = False
     st.session_state.show_mass_edit_popup = False
+    st.session_state.show_change_status_popup = False # Fechar status popup
     st.rerun()
 
 def _delete_process_action(process_id: Any):
@@ -433,6 +464,73 @@ def _delete_process_action(process_id: Any):
     st.session_state.selected_process_data = None # Limpa a seleção após arquivamento
     _load_processes() # Recarrega para remover o processo arquivado da lista
     st.rerun()
+
+def _change_process_status_action(process_id: Any, new_status: str):
+    """Altera o status de um processo no banco de dados."""
+    user_info = st.session_state.get('user_info', {'username': 'Desconhecido'})
+    current_username = user_info.get('username', 'Desconhecido')
+
+    original_process_data_raw = db_manager.obter_processo_por_id(process_id) if isinstance(process_id, int) else db_manager.obter_processo_by_processo_novo(process_id)
+    if not original_process_data_raw:
+        st.error(f"Processo ID {process_id} não encontrado para alteração de status.")
+        return
+
+    original_status = original_process_data_raw.get('Status_Geral')
+
+    if db_manager.atualizar_processo(process_id, {"Status_Geral": new_status}):
+        db_manager.inserir_historico_processo(
+            process_id, "Status_Geral", original_status, new_status,
+            current_username, db_type="Firestore" if db_manager._USE_FIRESTORE_AS_PRIMARY else "SQLite"
+        )
+        st.success(f"Status do processo ID {process_id} alterado para '{new_status}' com sucesso!")
+    else:
+        st.error(f"Falha ao alterar status do processo ID {process_id}.")
+    
+    st.session_state.show_change_status_popup = False
+    st.session_state.process_id_to_change_status = None
+    st.session_state.process_name_to_change_status = None
+    _load_processes()
+    st.rerun()
+
+
+def _display_change_status_popup():
+    """Exibe um pop-up para alterar o status de um processo."""
+    if not st.session_state.get('show_change_status_popup', False):
+        return
+
+    process_id = st.session_state.get('process_id_to_change_status')
+    process_name = st.session_state.get('process_name_to_change_status')
+
+    if process_id is None:
+        st.session_state.show_change_status_popup = False
+        return
+
+    with st.form(key=f"change_status_form_{process_id}"):
+        st.markdown(f"### Alterar Status do Processo")
+        st.info(f"Selecione o novo status para o processo: **{process_name}**")
+
+        # Obter o status atual do processo
+        current_process_data = db_manager.obter_processo_por_id(process_id) if isinstance(process_id, int) else db_manager.obter_processo_by_processo_novo(process_id)
+        current_status = current_process_data.get('Status_Geral') if current_process_data else None
+
+        # Opções de status, com o status atual pré-selecionado se existir
+        status_options = db_manager.STATUS_OPTIONS
+        default_index = 0
+        if current_status in status_options:
+            default_index = status_options.index(current_status)
+
+        new_status = st.selectbox("Novo Status:", options=status_options, index=default_index, key="new_status_selectbox")
+
+        col_apply, col_cancel = st.columns(2)
+        with col_apply:
+            if st.form_submit_button("Aplicar Status"):
+                _change_process_status_action(process_id, new_status)
+        with col_cancel:
+            if st.form_submit_button("Cancelar"):
+                st.session_state.show_change_status_popup = False
+                st.session_state.process_id_to_change_status = None
+                st.session_state.process_name_to_change_status = None
+                st.rerun()
 
 def _preprocess_dataframe_for_db(df: pd.DataFrame) -> Optional[List[Dict[str, Any]]]:
     """Realiza o pré-processamento e padronização dos dados do DataFrame."""
@@ -699,7 +797,7 @@ def _import_from_google_sheets(sheet_url_or_id: str, worksheet_name: str) -> boo
         import_success_count = 0
         total_rows = len(processed_records)
 
-        st.info(f"Iniciando importação/atualização de {total_rows} processos do Google Sheets...")
+        st.info(f"Iniciando importação/atualização de {total_rows} processos...")
         progress_bar = st.progress(0)
 
         for index, row_dict in enumerate(processed_records):
@@ -1066,7 +1164,7 @@ STATUS_COLORS_HEX = {
     'Verificando': '#FD7E14',      # Laranja Alerta
     'Em produção': '#6F42C1',      # Roxo Médio
     'Processo Criado': '#A9A9A9',  # Cinza Claro para o padrão
-    'Arquivados': '#6C757D',       # Cinza Neutro
+    'Arquivados': '#DC3545',       # Vermelho para status "Arquivado"
     'Sem Status': '#343A40',       # Cinza Escuro para campos vazios/desconhecidos
     'Status Desconhecido': '#343A40', # Cinza Escuro
 }
@@ -1113,6 +1211,10 @@ def _display_followup_list_page():
     st.session_state.setdefault('mass_edit_found_processes', [])
     st.session_state.setdefault('mass_edit_can_proceed', False)
     st.session_state.setdefault('form_is_cloning', False)
+    st.session_state.setdefault('show_change_status_popup', False) # Novo: controlar popup de status
+    st.session_state.setdefault('process_id_to_change_status', None)
+    st.session_state.setdefault('process_name_to_change_status', None)
+
 
     # _load_processes() é chamado antes dos popups para garantir que as opções de filtro estejam atualizadas
     _load_processes() 
@@ -1122,12 +1224,14 @@ def _display_followup_list_page():
     _display_import_popup()
     _display_delete_confirm_popup()
     _display_mass_edit_popup()
+    _display_change_status_popup() # Exibir o novo popup de status
 
     # Se um pop-up está aberto, impede a renderização do restante da página principal
     if st.session_state.get('show_filter_search_popup', False) or \
        st.session_state.get('show_import_popup', False) or \
        st.session_state.get('show_delete_confirm_popup', False) or \
-       st.session_state.get('show_mass_edit_popup', False):
+       st.session_state.get('show_mass_edit_popup', False) or \
+       st.session_state.get('show_change_status_popup', False): # Adicionado o novo popup
         return
 
     st.markdown("---")
@@ -1169,22 +1273,18 @@ def _display_followup_list_page():
         )
     
     # Botões de ação globais (agora com "Mais Filtros" e "Limpar Filtros")
-    col1_add, col1_filter, col1_mass_edit, col1_export, col1_search_item, col1_clear_filters = st.columns([0.05, 0.04, 0.05, 0.04, 0.05, 0.05])
-    with col1_add:
-        if st.button("Adicionar Novo Processo", key="add_new_process_button"):
+    with st.popover("Mais Opções"):
+        if st.button("Adicionar Novo Processo +", key="add_new_process_button"):
             _open_edit_process_popup(None)
-    with col1_filter:
-        if st.button("Mais Filtros", key="open_filter_search_popup_button"):
-            _open_filter_search_popup()
-    with col1_mass_edit:
-        if st.button("Editar Múltiplos Processos", key="mass_edit_processes_button"):
+        if st.button("Editar Múltiplos Processos ✍🏻", key="mass_edit_processes_button"):
             _open_mass_edit_popup()
-    with col1_export:
+        if st.button("Mais Filtros ⌨", key="open_filter_search_popup_button"):
+            _open_filter_search_popup()
         if st.session_state.followup_processes_data:
             df_to_export = pd.DataFrame(st.session_state.followup_processes_data)
             excel_data = _export_processes_to_excel(df_to_export)
             st.download_button(
-                label="Exportar Excel",
+                label="Exportar Excel 📊",
                 data=excel_data,
                 file_name="processos_importacao_filtrados.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1192,14 +1292,15 @@ def _display_followup_list_page():
             )
         else:
             st.info("Nenhum dado para exportar.")
-    with col1_search_item:
-        if st.button("Pesquisar Item", key="search_item_button"):
-            st.session_state.current_page = "Produtos"
-            st.rerun()
-    with col1_clear_filters:
-        if st.button("Limpar Filtros", key="clear_main_filters_button"):
+        if st.button("Limpar Filtros �", key="clear_main_filters_button"):
             _reset_main_filters()
             st.rerun() # Necessário para forçar a UI a refletir o reset dos filtros
+        
+        if st.button("Pesquisar Item 🔎 ", key="search_item_button"):
+            st.session_state.current_page = "Produtos"
+            st.rerun()
+            
+    
 
     st.markdown("---")
     st.markdown("#### Processos de Importação")
@@ -1245,13 +1346,53 @@ def _display_followup_list_page():
         .process-card-doc-status {
             font-size: 1.1em; /* Ajusta o tamanho dos emojis */
         }
-        
+
+        /* Estilo para o botão de três pontos e menu */
+        /* Alvo mais específico para o botão do popover */
+        div[data-testid^="stVerticalBlock"] > div > div > div > div > .stButton > button {
+            font-size: 1.5em;
+            padding: 0.2em 0.5em;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #555;
+            color: white;
+            border: none;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+        }
+        div[data-testid^="stVerticalBlock"] > div > div > div > div > .stButton > button:hover {
+            background-color: #777;
+        }
+
+        /* Estilo para os botões dentro do popover */
+        div[data-testid="stPopover"] .stButton > button {
+            width: 100%;
+            margin-bottom: 5px;
+            justify-content: flex-start; /* Alinha o texto à esquerda */
+            padding-left: 10px;
+            border-radius: 5px; /* Volta para cantos arredondados normais para botões de menu */
+            background-color: #444; /* Cor de fundo para botões de menu */
+            color: white;
+            box-shadow: none; /* Remove sombra extra */
+        }
+        div[data-testid="stPopover"] .stButton > button:hover {
+            background-color: #666; /* Escurece no hover */
+        }
         </style>
     """, unsafe_allow_html=True)
 
+    # Initialize column variables outside the loop to satisfy Pylance's static analysis
+    # These assignments are primarily for linter satisfaction and don't affect runtime logic,
+    # as the actual columns are defined dynamically inside the loop.
+    col_main_info = None
+    col_dates_status = None
+    col_docs_status = None
+    col_actions = None
 
     if st.session_state.followup_processes_data:
-        # A iteração agora é direta sobre os dados já filtrados e ordenados.
         
         for row_index, row_dict in enumerate(st.session_state.followup_processes_data):
             # Garante que process_id seja uma string única para a chave do widget
@@ -1270,6 +1411,16 @@ def _display_followup_list_page():
             previsao_pichau = _format_date_display(row_dict.get('Previsao_Pichau'))
             observacao = row_dict.get('Observacao', 'N/A')
 
+            # **LÓGICA DE ESTILO PARA STATUS ARQUIVADO**
+            status_arquivado = row_dict.get('Status_Arquivado', 'Não Arquivado')
+            display_status = status_geral # O status a ser exibido
+            status_display_color = STATUS_COLORS_HEX.get(status_geral, STATUS_COLORS_HEX['Sem Status'])
+
+            if status_arquivado == 'Arquivado':
+                display_status = "Arquivado" # Altera o texto para "Arquivado"
+                status_display_color = STATUS_COLORS_HEX['Arquivados'] # Usa a cor vermelha definida para "Arquivados"
+            # FIM DA LÓGICA
+
             # Conversão para emojis
             pago = "✅" if str(row_dict.get('Pago', '')).lower() == "sim" else ("❌" if str(row_dict.get('Pago', '')).lower() == "não" else "➖")
             docs_revisados = "✅" if str(row_dict.get('Documentos_Revisados', '')).lower() == "sim" else ("❌" if str(row_dict.get('Documentos_Revisados', '')).lower() == "não" else "➖")
@@ -1280,11 +1431,9 @@ def _display_followup_list_page():
             conferido = "✅" if str(row_dict.get('Conferido', '')).lower() == "sim" else ("❌" if str(row_dict.get('Conferido', '')).lower() == "não" else "➖")
 
             modal_icon = '✈️' if modal == 'Aéreo' else ('🚢' if modal == 'Maritimo' else '➖')
-            status_color = STATUS_COLORS_HEX.get(status_geral, STATUS_COLORS_HEX['Sem Status'])
             
-            # Layout em mais colunas
-            col_main_info, col_dates_status, col_docs_status, col_actions = st.columns([0.15, 0.25, 0.35, 0.15])
-            
+            # Use status_display_color e display_status aqui
+            col_main_info, col_dates_status, col_docs_status, col_actions = st.columns([0.15, 0.25, 0.35, 0.05])
             with col_main_info:
                 st.markdown(f"<div style='font-size: 2.5em; text-align: center; color: #F8F8F8;'>{modal_icon}</div>", unsafe_allow_html=True)
                 st.markdown(f"""
@@ -1297,7 +1446,7 @@ def _display_followup_list_page():
             with col_dates_status:
                 st.markdown(f"""
                     <div style='color: #E0E0E0;'>
-                        <span class="process-card-status-text" style="color: {status_color}; font-size: 1.2em;">{status_geral}</span><br>
+                        <span class="process-card-status-text" style="color: {status_display_color}; font-size: 1.2em;">{display_status}</span><br>
                         <strong>Qtd:</strong> {quantidade} | <strong>Valor (US$):</strong> {_format_usd_display(valor_usd).replace('US$', '')}<br>
                         <small>Nº Invoice: {n_invoice}</small><br>
                         <strong>Observação:</strong> <span style="color:{'#FF0000' if observacao != 'N/A' and observacao != 'None' else '#E0E0E0'}">{observacao if observacao not in ['N/A', 'None'] else 'Nenhuma'}</span><br>
@@ -1317,51 +1466,30 @@ def _display_followup_list_page():
                     """, unsafe_allow_html=True)
 
             with col_actions:
-                # Adiciona CSS personalizado apenas para os botões dos cards
-                st.markdown("""
-                    <style>
-                    /* Aplica estilo apenas aos botões dentro de col_actions */
-                    [data-testid="column"] [data-testid="stHorizontalBlock"] .stButton > button {
-                        width: 100% !important;
-                        margin: 1.8rem !important;
-                        padding: 0.8rem !important;
-                        box-sizing: border-box !important;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-                
-                # Botões em duas colunas com emojis e chaves únicas
-                action_col1, action_col2 = st.columns(2)
-                with action_col1:
-                    # Chave agora usa unique_id_for_key e row_index para garantir unicidade
-                    if st.button("🔍", key=f"card_query_{unique_id_for_key}_{row_index}", 
-                               help="Clique para consultar este processo.", 
-                               use_container_width=True):
+                # NOVO: Remover o 'key' do st.popover
+                with st.popover("📂"):
+                    if st.button("Consultar Processo 🔎", key=f"menu_query_{unique_id_for_key}"):
                         st.session_state.selected_process_data = row_dict 
                         _open_process_query_page(unique_id_for_key)
-                with action_col2:
-                    if st.button("✏️", key=f"card_edit_{unique_id_for_key}_{row_index}", 
-                               help="Clique para editar este processo.", 
-                               use_container_width=True):
+                    if st.button("Alterar Status do Processo 🔄", key=f"menu_change_status_{unique_id_for_key}"):
+                        st.session_state.show_change_status_popup = True
+                        st.session_state.process_id_to_change_status = unique_id_for_key
+                        st.session_state.process_name_to_change_status = processo_novo
+                        st.rerun()
+                    if st.button("Editar Processo ✏️", key=f"menu_edit_{unique_id_for_key}"):
                         st.session_state.selected_process_data = row_dict
                         _open_edit_process_popup(unique_id_for_key)
-                
-                # Botões para clonar e excluir (agora arquivar)
-                action_col3, action_col4 = st.columns(2)
-                with action_col3:
-                    if st.button("➕", key=f"card_clone_{unique_id_for_key}_{row_index}", 
-                               help="Clique para clonar este processo.", 
-                               use_container_width=True):
+                    if st.button("Clonar Processo 🗒️", key=f"menu_clone_{unique_id_for_key}"):
                         st.session_state.selected_process_data = row_dict
                         _open_edit_process_popup(unique_id_for_key, is_cloning=True)
-                with action_col4:
-                    if st.button("🗑️", key=f"card_delete_{unique_id_for_key}_{row_index}", 
-                               help="Clique para arquivar este processo. Ele não será excluído, mas ficará oculto da tela principal.", 
-                               use_container_width=True):
+                    if st.button("Arquivar Processo 🗑️", key=f"menu_archive_{unique_id_for_key}"):
                         st.session_state.show_delete_confirm_popup = True
                         st.session_state.delete_process_id_to_confirm = unique_id_for_key
                         st.session_state.delete_process_name_to_confirm = processo_novo
                         st.rerun()
+                    # Nova opção: Alterar Status do Processo
+                    
+
             col1_empty, col1_docs_status,col3_empty = st.columns([0.08, 0.32, 0.11])
             with col1_docs_status:
                 st.markdown(f"""
