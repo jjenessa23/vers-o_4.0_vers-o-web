@@ -156,15 +156,17 @@ button[title="View fullscreen"] {
     padding-top: 0px !important;
     padding-bottom: 0px !important;
 }
-/* Reduzir o padding dos botões na sidebar para um visual mais compacto */
-/* Ajustado para afetar diretamente os botões dentro da sidebar */
+
+/* --- AJUSTES PARA BOTÕES NA SIDEBAR (MENOS AGRESSIVOS) --- */
+/* Aumentar o padding e a margem dos botões na sidebar para evitar texto cortado */
 [data-testid="stSidebarNav"] button {
-    padding-top: 0.1rem !important; /* Reduzir padding superior */
-    padding-bottom: 0.1rem !important; /* Reduzir padding inferior */
-    margin-top: 0.05rem !important; /* Reduzir margem superior */
-    margin-bottom: 0.05rem !important; /* Reduzir margem inferior */
-    height: auto !important; /* Permite que a altura se ajuste ao conteúdo */
+    padding-top: 0.3rem !important;    /* Aumentado de 0.1rem */
+    padding-bottom: 0.3rem !important; /* Aumentado de 0.1rem */
+    margin-top: 0.1rem !important;     /* Aumentado de 0.05rem */
+    margin-bottom: 0.1rem !important;  /* Aumentado de 0.05rem */
+    height: auto !important;           /* Permite que a altura se ajuste ao conteúdo */
 }
+
 /* Remover margens e padding de subheaders na sidebar para compactar */
 .stSidebar h3 {
     margin-top: 0.2rem !important; /* Reduzir margem superior */
@@ -186,16 +188,20 @@ button[title="View fullscreen"] {
     padding-bottom: 0px !important;
 }
 
-/* Remover margens e padding de st-emotion-cache genéricos */
+/* --- AJUSTES DE PADDING E MARGEM GERAIS (MENOS AGRESSIVOS) --- */
+/* Reavaliar e potencialmente suavizar estes seletores, se estiverem causando excesso de compactação */
+/* Originalmente, muitos desses estavam com 0 !important, tornando o layout muito apertado. */
+/* Os valores foram ajustados para permitir um pouco mais de "respiração". */
 .st-emotion-cache-z5fcl4, .st-emotion-cache-zq5wmm, .st-emotion-cache-1c7y2o2,
 .st-emotion-cache-1avcm0n, .st-emotion-cache-1dp5ifq, .st-emotion-cache-10qtn7d,
 .st-emotion-cache-1y4p8pa, .st-emotion-cache-ocqkz7, .st-emotion-cache-1gh0m0m,
 .st-emotion-cache-1vq4p4b, .st-emotion-cache-1v04791, .st-emotion-cache-1kyx2u8 {
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
+    padding-top: 0.1rem !important;    /* Aumentado para dar um mínimo de padding */
+    padding-bottom: 0.1rem !important; /* Aumentado para dar um mínimo de padding */
+    margin-top: 0.1rem !important;     /* Aumentado para dar um mínimo de margem */
+    margin-bottom: 0.1rem !important;  /* Aumentado para dar um mínimo de margem */
 }
+
 
 /* Remover padding do cabeçalho do Streamlit */
 header {
@@ -245,11 +251,12 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* Ajustar o padding do conteúdo dentro da sidebar para um visual mais compacto */
+/* Também suavizado para permitir mais espaço interno */
 [data-testid="stSidebarContent"] {
-    padding-top: 0.1rem !important; /* Reduzir padding superior */
-    padding-bottom: 0.1rem !important; /* Reduzir padding inferior */
-    padding-left: 0.1rem !important; /* Reduzir padding esquerdo */
-    padding-right: 0.1rem !important; /* Reduzir padding direito */
+    padding-top: 0.3rem !important;    /* Aumentado de 0.1rem */
+    padding-bottom: 0.3rem !important; /* Aumentado de 0.1rem */
+    padding-left: 0.3rem !important;   /* Aumentado de 0.1rem */
+    padding-right: 0.3rem !important;  /* Aumentado de 0.1rem */
 }
 
 /* Ocultar o cabeçalho do Streamlit que pode conter o título da página ou outros elementos */
@@ -323,21 +330,143 @@ div[data-testid="stForm"] button {
     padding-bottom: 0 !important; /* Reduzir padding inferior */
 }
 
-/* Adicionar opacidade à imagem de fundo do login SEM afetar o conteúdo */
-/* A imagem de fundo é definida pela função set_background_image (geralmente no body ou html) */
-/* Para dar a ela uma aparência opaca, aplicamos um overlay semi-transparente ao .stApp */
+/* Ajustes para o fundo do .stApp para que o body possa ter o background de quadrados */
 .stApp {
-    background-color: rgba(0, 0, 0, 0.9); /* Camada semi-transparente sobre o fundo, ajustado para 0.9 */
-    background-blend-mode: multiply; /* Mistura a cor com a imagem de fundo */
-    background-size: cover; /* Garante que a imagem de fundo cubra o elemento */
-    background-position: center; /* Centraliza a imagem de fundo */
-    background-repeat: no-repeat; /* Evita a repetição da imagem de fundo */
-    transition: background-color 0.5s ease-in-out; /* Transição suave para a cor de fundo */
+    background-color: transparent !important; /* Torna o fundo do app transparente */
+    background-image: none !important; /* Remove qualquer imagem de fundo padrão */
+    background-blend-mode: normal !important; /* Garante que o blend mode não atrapalhe */
+    transition: none !important; /* Remove transições que podem conflitar */
 }
 
+/* Define um fundo padrão escuro para o corpo */
+body {
+    background-color: #1a202c; /* Cor de fundo escura padrão */
+}
+
+/* Novo estilo para o container da aurora */
+.aurora-background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 400px; /* Altura da faixa da aurora na parte superior */
+    /* Múltiplos gradientes radiais para simular as "bolhas" de aurora */
+    background-image:
+        radial-gradient(at 10% 80%, rgba(255, 0, 150, 0.5) 0px, transparent 75%), /* Rosa/Roxo mais vibrante e com transição mais ampla */
+        radial-gradient(at 90% 20%, rgba(0, 200, 255, 0.5) 0px, transparent 75%), /* Azul mais vibrante e com transição mais ampla */
+        radial-gradient(at 40% 70%, rgba(0, 255, 100, 0.5) 0px, transparent 75%); /* Verde mais vibrante e com transição mais ampla */
+    background-size: 200% 200%, 200% 200%, 200% 200%; /* Tamanho inicial das bolhas, maior */
+    background-position:
+        0% 0%, /* Posição inicial da primeira bolha */
+        50% 50%, /* Posição inicial da segunda bolha */
+        100% 100%; /* Posição inicial da terceira bolha */
+    background-repeat: no-repeat;
+    animation: moveAurora 25s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate, /* Animação de movimento com easing mais rápida */
+               pulseAurora 8s ease-in-out infinite alternate; /* Animação de pulso/onda mais rápida */
+    /* Adicionado filtro de desfoque para um efeito mais orgânico */
+    filter: blur(120px); /* Aumentei o desfoque inicial para maior suavidade */
+    z-index: -2; /* Fica atrás das partículas e do conteúdo */
+}
+
+/* Animação principal de movimento */
+@keyframes moveAurora {
+    0% {
+        background-position:
+            0% 0%,
+            50% 50%,
+            100% 100%;
+    }
+    25% {
+        background-position:
+            -20% 30%, /* Movimento mais agressivo */
+            70% 30%,
+            105% 90%;
+    }
+    50% {
+        background-position:
+            -40% 0%, /* Movimento mais agressivo */
+            20% 80%,
+            80% 80%;
+    }
+    75% {
+        background-position:
+            -10% -20%, /* Movimento mais agressivo */
+            10% 90%,
+            50% 50%;
+    }
+    100% {
+        background-position:
+            0% 0%,
+            50% 50%,
+            100% 100%;
+    }
+}
+
+/* Nova animação para o efeito de onda/pulso */
+@keyframes pulseAurora {
+    0% {
+        background-size: 200% 200%, 200% 200%, 200% 200%;
+        filter: blur(120px);
+    }
+    50% {
+        background-size: 230% 230%, 230% 230%, 230% 230%; /* Aumenta mais o tamanho para simular onda forte */
+        filter: blur(160px); /* Aumenta o desfoque para suavizar a expansão e o "borrão" da onda */
+    }
+    100% {
+        background-size: 200% 200%, 200% 200%, 200% 200%;
+        filter: blur(120px);
+    }
+}
+
+/* Estilo para o container de partículas */
+.particles-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* Garante que as partículas não saiam da tela */
+    z-index: -1; /* Fica acima da aurora, mas atrás do conteúdo */
+    pointer-events: none; /* Permite interações com elementos abaixo */
+}
+
+/* Estilo para as partículas individuais */
+.particle {
+    position: absolute;
+    background-color: rgba(255, 255, 255, 1); /* Cor branca sólida para máxima visibilidade */
+    border-radius: 50%; /* Torna as partículas circulares */
+    animation-timing-function: linear; /* Animação linear */
+    animation-iteration-count: infinite; /* Animação infinita */
+    opacity: 0; /* Começa invisível, animado para visível */
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.6); /* Adiciona um brilho mais notável */
+}
+
+/* Definição das animações para as partículas */
+@keyframes particle-fall {
+    0% {
+        transform: translateY(-50vh) translateX(0vw) scale(0.8); /* Começa acima, mais visível */
+        opacity: 0;
+    }
+    10% {
+        opacity: 1; /* Atinge opacidade total mais rápido */
+    }
+    90% {
+        opacity: 1; /* Mantém opacidade total por mais tempo */
+        transform: translateY(150vh) translateX(50vw) scale(1.2); /* Move mais para baixo e para o lado */
+    }
+    100% {
+        transform: translateY(180vh) translateX(70vw) scale(1.5); /* Termina fora da tela, ligeiramente maior */
+        opacity: 0; /* Desaparece no final */
+    }
+}
+
+@keyframes particle-fade {
+    0% { opacity: 0; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0; }
+}
 </style>
 """, unsafe_allow_html=True)
-
 
 # Importar o módulo de utilitários de banco de dados (direto, pois está na mesma pasta)
 try:
@@ -471,9 +600,64 @@ PAGES = {
 
 # --- Barra Lateral de Navegação (Menu) ---
 if not st.session_state.authenticated:
-    # Definir fundo para a tela de login
-    login_background_image_path = os.path.join(os.path.dirname(__file__), 'assets', 'fundo_login.png')
-    set_background_image(login_background_image_path)
+    # Injeta um div para o fundo da aurora APENAS na tela de login
+    st.markdown('<div class="aurora-background"></div>', unsafe_allow_html=True)
+    # Container para as partículas
+    st.markdown('<div class="particles-container" id="particles-container"></div>', unsafe_allow_html=True)
+
+    # JavaScript para criar e animar as partículas
+    st.markdown("""
+    <script>
+    // Função para criar uma única partícula
+    function createParticle() {
+        const particle = document.createElement('div');
+        particle.classList.add('particle');
+        const size = Math.random() * 4 + 2; // Tamanho entre 2px e 6px (aumentado)
+        particle.style.width = `${size}px`;
+        particle.style.height = `${size}px`;
+        
+        // Posição inicial aleatória
+        // As partículas podem começar um pouco fora da tela para entrar suavemente
+        const startX = Math.random() * 100; // Porcentagem
+        const startY = - (Math.random() * 50); // Começa entre 0% e -50% (acima da tela)
+        particle.style.left = `${startX}%`;
+        particle.style.top = `${startY}vh`; // Usar vh para coordenadas verticais
+
+        // Atraso e duração da animação aleatórios para variação
+        const delay = Math.random() * 20; // Atraso de até 20 segundos
+        const duration = Math.random() * 25 + 15; // Duração de 15 a 40 segundos (aumentado)
+        
+        particle.style.animationName = 'particle-fall';
+        particle.style.animationDuration = `${duration}s`;
+        particle.style.animationDelay = `${delay}s`;
+        
+        return particle;
+    }
+
+    // Garante que o DOM esteja totalmente carregado antes de manipular elementos
+    // Adiciona partículas em lotes para evitar bloqueio da UI
+    window.onload = function() {
+        const particlesContainer = document.getElementById('particles-container');
+        if (particlesContainer) {
+            const numParticles = 150; // Aumentado para mais partículas
+            let particlesCreated = 0;
+
+            function addParticleBatch() {
+                const batchSize = 10; // Adiciona partículas em lotes maiores
+                for (let i = 0; i < batchSize && particlesCreated < numParticles; i++) {
+                    particlesContainer.appendChild(createParticle());
+                    particlesCreated++;
+                }
+                if (particlesCreated < numParticles) {
+                    requestAnimationFrame(addParticleBatch); // Continua adicionando no próximo frame
+                }
+            }
+            requestAnimationFrame(addParticleBatch); // Inicia a adição de partículas
+        }
+    };
+    </script>
+    """, unsafe_allow_html=True)
+
     lb_title = st.columns(5)[2]
     with lb_title:
         
