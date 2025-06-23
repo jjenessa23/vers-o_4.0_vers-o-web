@@ -129,6 +129,19 @@ from app_logic.utils import set_background_image, set_sidebar_background_image, 
 # Injetar CSS personalizado para ajustar layout e ocultar elementos indesejados
 st.markdown("""
 <style>
+/* Ajuste da largura da sidebar para +50px (ex: de 250px para 300px ou equivalente) */
+section[data-testid="stSidebar"] {
+    width: 250px !important; /* Largura padrão do Streamlit é geralmente 210px ou 250px. Defina o valor total desejado aqui. */
+    /* Você pode precisar experimentar com o valor exato aqui. */
+    /* Ex: Se a largura padrão é 200px, 250px adicionaria os 50px desejados */
+}
+
+/* --- ESTILOS DO POPOVER DE AÇÕES NOS CARDS DE FOLLOW-UP --- */
+/* Garante que o popover tenha uma largura mínima para os botões */
+div[data-testid^="stPopover"] {
+    min-width: 200px !important; /* Adiciona uma largura mínima para o popover */
+}
+
 /* Oculta o botão de fullscreen que aparece ao passar o mouse sobre as imagens */
 button[title="View fullscreen"] {
     display: none !important;
