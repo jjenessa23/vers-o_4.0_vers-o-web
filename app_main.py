@@ -1,7 +1,8 @@
 import streamlit as st # st deve ser importado primeiro para set_page_config
 
 # Configuração da página (DEVE SER A PRIMEIRA CHAMADA STREAMLIT)
-st.set_page_config(layout="wide", page_title="Gerenciamento COMEX")
+# ADICIONADO: initial_sidebar_state="expanded" para tentar forçar a abertura da sidebar
+st.set_page_config(layout="wide", page_title="Gerenciamento COMEX", initial_sidebar_state="expanded")
 
 import os
 import sys
@@ -371,34 +372,19 @@ body {
 /* Animação principal de movimento */
 @keyframes moveAurora {
     0% {
-        background-position:
-            0% 0%,
-            50% 50%,
-            100% 100%;
+        transform: translateY(-50vh) translateX(0vw) scale(0.8); /* Começa acima, mais visível */
+        opacity: 0;
     }
-    25% {
-        background-position:
-            -20% 30%, /* Movimento mais agressivo */
-            70% 30%,
-            105% 90%;
+    10% {
+        opacity: 1; /* Atinge opacidade total mais rápido */
     }
-    50% {
-        background-position:
-            -40% 0%, /* Movimento mais agressivo */
-            20% 80%,
-            80% 80%;
-    }
-    75% {
-        background-position:
-            -10% -20%, /* Movimento mais agressivo */
-            10% 90%,
-            50% 50%;
+    90% {
+        opacity: 1; /* Mantém opacidade total por mais tempo */
+        transform: translateY(150vh) translateX(50vw) scale(1.2); /* Move mais para baixo e para o lado */
     }
     100% {
-        background-position:
-            0% 0%,
-            50% 50%,
-            100% 100%;
+        transform: translateY(180vh) translateX(70vw) scale(1.5); /* Termina fora da tela, ligeiramente maior */
+        opacity: 0; /* Desaparece no final */
     }
 }
 
