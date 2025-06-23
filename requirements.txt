@@ -8,5 +8,5 @@ altair
 numpy
 firebase-admin
 weasyprint
-pdf_analyzer_page
 pdfplumber
+
